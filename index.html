@@ -135,6 +135,7 @@
   .loginbox input[hidden], .loginbox button[hidden] { display: none; }
   .loginbox .msg { min-height: 1.2em; font-size: 13px; color: var(--muted); }
   .loginbox .msg.bad { color: var(--bad-text); }
+  .googlebtn { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 9px 12px; }
   .whoami { font-size: 12px; color: var(--muted); }
   .members { display: grid; gap: 8px; }
   .addmember { display: flex; gap: 8px; }
@@ -190,15 +191,14 @@
   </div>
 </header>
 <div id="login" hidden>
-  <form class="loginbox" id="loginForm" autocomplete="on">
+  <div class="loginbox">
     <h2>How far is everyone right now?</h2>
-    <p>This board is invite-only. Type your email and we'll send you a sign-in link.</p>
-    <input id="loginEmail" type="email" autocomplete="email" placeholder="you@example.com" required>
-    <input id="loginCode" inputmode="numeric" autocomplete="one-time-code" placeholder="Or type the code, if the email has one" maxlength="10" hidden>
-    <button class="btn" id="loginBtn" type="submit">Send me a code</button>
-    <button class="ghost" id="loginBack" type="button" hidden>Use a different email</button>
+    <p>This board is invite-only. Sign in with the Google account you were invited with.</p>
+    <button class="btn googlebtn" id="loginBtn" type="button">
+      <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>
+      Sign in with Google</button>
     <div class="msg" id="loginMsg"></div>
-  </form>
+  </div>
 </div>
 <div id="notice"></div>
 
@@ -274,7 +274,7 @@
     <div data-owner-only>
       <div class="sectbar"><h3 class="sect">Who can open this board</h3></div>
       <form class="addmember" id="addMember">
-        <input id="memberEmail" type="email" placeholder="friend@example.com" aria-label="Friend's email">
+        <input id="memberEmail" type="email" placeholder="friend@gmail.com" aria-label="Friend's Gmail address">
         <button class="btn" type="submit">Invite</button>
       </form>
       <div class="members" id="members"></div>
@@ -330,7 +330,9 @@ async function call(path, body) {
   const res = await fetch(FN + path, body === undefined ? { headers: { Authorization: `Bearer ${token}` } } : {
     method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body) });
   if (res.status === 401) { keepSession(null); showLogin("Your sign-in has expired. Please sign in again."); throw new Error("signed out"); }
-  return res.json();
+  const data = await res.json();
+  if (res.status === 403 && /invite list/.test(data.error || "")) { keepSession(null); showLogin(data.error); throw new Error("signed out"); }
+  return data;
 }
 const apiGet = url => call(url.replace(/^\/api/, ""));
 const store = {
@@ -1088,7 +1090,7 @@ async function loadMembers(change) {
     (res.members.length ? res.members.map(m => `<div class="person"><div class="who"><b>${esc(m)}</b>
       <span>Can view and change the centre · ${seen[m] ? `last seen ${esc(ago(seen[m]))}` : "hasn't signed in yet"}</span></div>
       <div class="acts"><button class="ghost danger" data-uninvite="${esc(m)}">Remove</button></div></div>`).join("")
-      : `<div class="empty">No friends invited yet. Add their email above; they sign in with a link sent there.</div>`);
+      : `<div class="empty">No friends invited yet. Add their Gmail address above; they sign in with that Google account.</div>`);
 }
 
 function ago(when) {
@@ -1111,53 +1113,21 @@ $("members").addEventListener("click", e => {
     loadMembers({ remove: true, email: b.dataset.uninvite });
 });
 
-let loginEmail = "";
 function showLogin(message = "") {
   $("login").hidden = false;
   $("loginMsg").textContent = message;
   $("loginMsg").className = "msg" + (message ? " bad" : "");
-  setLoginStep(loginEmail ? "code" : "email");
 }
-function setLoginStep(step) {
-  const code = step === "code";
-  $("loginEmail").hidden = code;
-  $("loginCode").hidden = !code;
-  $("loginBack").hidden = !code;
-  $("loginBtn").textContent = code ? "Sign in with code" : "Email me a sign-in link";
-  (code ? $("loginCode") : $("loginEmail")).focus();
-}
-$("loginForm").addEventListener("submit", async e => {
-  e.preventDefault();
-  const say = (text, bad = false) => { $("loginMsg").textContent = text; $("loginMsg").className = "msg" + (bad ? " bad" : ""); };
-  $("loginBtn").disabled = true;
-  try {
-    if ($("loginCode").hidden) {
-      loginEmail = $("loginEmail").value.trim().toLowerCase();
-      say("Sending…");
-      const res = await (await fetch(FN + "/login", { method: "POST", headers: { "Content-Type": "application/json" },
-                                                       body: JSON.stringify({ email: loginEmail }) })).json();
-      if (res.error) { loginEmail = ""; return say(res.error, true); }
-      say(res.message);
-      setLoginStep("code");
-    } else {
-      say("Checking…");
-      keepSession(await auth("verify", { type: "email", email: loginEmail, token: $("loginCode").value.trim() }));
-      $("loginCode").value = "";
-      say("");
-      $("login").hidden = true;
-      start();
-    }
-  } catch (err) {
-    say(err.message === "Failed to fetch" ? "Can't reach the server. Check your internet connection." : err.message, true);
-  } finally {
-    $("loginBtn").disabled = false;
-  }
-});
-$("loginBack").onclick = () => { loginEmail = ""; setLoginStep("email"); $("loginMsg").textContent = ""; };
+// Off to Google; Supabase brings you back here signed in (see signInFromLink)
+$("loginBtn").onclick = () => {
+  $("loginMsg").textContent = "Opening Google…";
+  $("loginMsg").className = "msg";
+  location.href = `${CFG.supabaseUrl}/auth/v1/authorize?` + new URLSearchParams({
+    provider: "google", redirect_to: location.origin + location.pathname, prompt: "select_account" });
+};
 $("signout").onclick = () => {
   if (!confirm("Sign out of the board on this device?")) return;
   keepSession(null);
-  loginEmail = "";
   board = null; walks = null; walksFor = null;
   trip = { centre: null, people: [] };
   layer.clearLayers();
@@ -1173,15 +1143,16 @@ function start() {
   });
 }
 
-// Coming back from the sign-in link in the email: Supabase puts the sign-in after the # in the address
+// Coming back from Google: Supabase puts the sign-in after the # in the address
 function signInFromLink() {
   const back = new URLSearchParams(location.hash.slice(1));
   if (!back.has("access_token") && !back.has("error")) return "";
   history.replaceState(null, "", location.pathname + location.search);   // keep it out of history and bookmarks
   if (back.has("error")) {
-    return /expired|invalid/i.test(back.get("error_description") || "")
-      ? "That sign-in link has expired or was already used. Ask for a new one."
-      : back.get("error_description") || "Sign-in failed. Ask for a new link.";
+    // sign-ups are off, so a Google account nobody invited is turned away here
+    return /signup|sign up|not allowed/i.test(back.get("error_description") || "")
+      ? "That Google account isn't invited to this board. Ask the owner to invite it, or pick another account."
+      : back.get("error_description") || "Sign-in failed. Try again.";
   }
   keepSession({ access_token: back.get("access_token"), refresh_token: back.get("refresh_token"),
                 expires_at: Number(back.get("expires_at")) || undefined, expires_in: Number(back.get("expires_in")) || 3600 });
