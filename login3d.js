@@ -219,12 +219,13 @@ export function mountLogin({ canvas, stage, card, clock, status, button }) {
 
   // The sign-in transition (about 1.6 s, ending on black): two shockwaves spread out from Bangalore,
   // the land dots light up in the accent colour behind the first one, and the camera eases in.
-  const LENGTH = 1.6, SECOND_WAVE = 0.25;
+  const LENGTH = 1.6, SECOND_WAVE = 0.1 / LENGTH;   // second wave 0.1 s behind the first
+  const PUSH_SPEED = 1.5;   // the camera's push in finishes in two thirds of the time
   const smooth = (x) => x * x * (3 - 2 * x);
   const lit = ACC.clone().lerp(new THREE.Color(1, 1, 1), 0.15);
   function transition(dt) {
     warpT = Math.min(1, warpT + dt / LENGTH);
-    const k = smooth(warpT), fade = Math.max(0, (warpT - 0.6) / 0.4);
+    const fade = Math.max(0, (warpT - 0.6) / 0.4);
     const radius = (start) => (warpT < start ? -9 : Math.pow((warpT - start) / (1 - start), 0.8) * Math.PI * 1.05);
     wave.visible = true;
     wave.material.uniforms.uR.value.set(radius(0), radius(SECOND_WAVE), -9);
@@ -237,8 +238,9 @@ export function mountLogin({ canvas, stage, card, clock, status, button }) {
       }
       dots.geo.attributes.color.needsUpdate = true;
     }
-    camera.position.copy(from).lerp(globe.position, Math.pow(k, 1.8) * 0.45);
-    camera.lookAt(globe.position.clone().multiplyScalar(Math.pow(k, 1.5)));
+    const push = smooth(Math.min(1, warpT * PUSH_SPEED));
+    camera.position.copy(from).lerp(globe.position, Math.pow(push, 1.8) * 0.45);
+    camera.lookAt(globe.position.clone().multiplyScalar(Math.pow(push, 1.5)));
     canvas.style.opacity = String(1 - fade);   // the page behind is black
     if (warpT >= 1 && onWarped) { const done = onWarped; onWarped = null; done(); }
   }
