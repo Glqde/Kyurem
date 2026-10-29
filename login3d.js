@@ -5,6 +5,8 @@ import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.m
 import { feature } from "https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/+esm";
 
 const BLR = [12.97, 77.59];
+const DOT = 0.042;   // land dot size
+const REST = 9.5;    // camera distance once the intro has flown in
 const DEST = [[28.61, 77.21], [19.08, 72.88], [22.57, 88.36], [13.08, 80.27], [17.39, 78.49], [1.35, 103.82], [25.2, 55.27], [51.5, -0.12]];
 
 /** Land / sea lookup from world-atlas coastlines, drawn flat onto a canvas. */
@@ -44,6 +46,19 @@ const fib = (n) => Array.from({ length: n }, (_, i) => {
 function arcCurve(a, b) {
   const A = ll(...a, 2.005), B = ll(...b, 2.005), M = A.clone().add(B).multiplyScalar(0.5);
   return new THREE.QuadraticBezierCurve3(A, M.normalize().multiplyScalar(2 + 0.45 * A.distanceTo(B) * 0.5), B);
+}
+
+/** A soft round dot, so points stay circles even when they fly right up to the camera. */
+let dotTexture = null;
+function roundDot() {
+  if (dotTexture) return dotTexture;
+  const c = document.createElement("canvas");
+  c.width = c.height = 64;
+  const g = c.getContext("2d"), grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grd.addColorStop(0, "#fff"); grd.addColorStop(0.55, "#fff"); grd.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 64, 64);
+  return (dotTexture = new THREE.CanvasTexture(c));
 }
 
 /** Card tilt + glare, the staggered rise-in, and the Bangalore clock line. Works even without WebGL. */
@@ -94,7 +109,7 @@ export function mountLogin({ canvas, stage, card, clock, status, button }) {
   const face = new THREE.Quaternion().setFromUnitVectors(ll(...BLR).normalize(), new THREE.Vector3(0.18, 0.32, 1).normalize());
 
   // dark core + soft white halo (Globe 1's look)
-  const core = new THREE.Mesh(new THREE.SphereGeometry(1.985, 64, 64), new THREE.MeshBasicMaterial({ color: 0x060607 }));
+  const core = new THREE.Mesh(new THREE.SphereGeometry(1.985, 64, 64), new THREE.MeshBasicMaterial({ color: 0x060607, transparent: true }));
   const halo = new THREE.Mesh(new THREE.SphereGeometry(2.18, 64, 64), new THREE.ShaderMaterial({
     transparent: true, side: THREE.BackSide, depthWrite: false,
     vertexShader: "varying vec3 n; void main(){ n = normalize(normalMatrix*normal); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }",
@@ -138,17 +153,17 @@ export function mountLogin({ canvas, stage, card, clock, status, button }) {
     const col = new Float32Array(home.length * 3).fill(0.95), toBLR = ll(...BLR).normalize();
     geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
     const ang = Float32Array.from(home, (v) => Math.acos(Math.max(-1, Math.min(1, v.clone().normalize().dot(toBLR)))));
-    const mat = new THREE.PointsMaterial({ size: 0.028, vertexColors: true, transparent: true, opacity: 0.95 });
+    const mat = new THREE.PointsMaterial({ size: DOT, vertexColors: true, transparent: true, opacity: 0.95, map: roundDot(), alphaTest: 0.4 });
     globe.add(new THREE.Points(geo, mat));
     sea = new THREE.Points(new THREE.BufferGeometry().setFromPoints(water.filter((_, i) => i % 7 === 0)),
-      new THREE.PointsMaterial({ size: 0.014, color: 0x6e6d68, transparent: true, opacity: 0 }));
+      new THREE.PointsMaterial({ size: 0.017, color: 0x6e6d68, transparent: true, opacity: 0, map: roundDot(), alphaTest: 0.4 }));
     globe.add(sea);
     dots = { home, from, pos, geo, mat, col, ang };
     born = clock3.getElapsedTime();
   }).catch(() => {});   // coastlines didn't load: the halo, pin and flights still show
 
   // drag to spin; hovering the button leans the globe toward Bangalore; warp dives in
-  let drag = null, lean = 0, leanTo = 0, warpT = 0, warping = false, onWarped = null, lastT = 0, from = null;
+  let drag = null, lean = 0, leanTo = 0, warpT = 0, warping = false, onWarped = null, lastT = 0;
   const spin = new THREE.Vector2(), vel = new THREE.Vector2();
   const down = (e) => { if (!e.target.closest(".stage")) drag = [e.clientX, e.clientY]; };
   const up = () => { drag = null; };
@@ -208,7 +223,7 @@ export function mountLogin({ canvas, stage, card, clock, status, button }) {
     globe.scale.setScalar(1 + lean * 0.3);
     pin.scale.setScalar(1 + Math.sin(t * 4) * 0.3 + lean);
 
-    const dist = 21 - ease * 11.5;   // fly in from far away
+    const dist = REST + (1 - ease) * 11.5;   // fly in from far away
     camera.position.set(0, 0, dist);
     camera.lookAt(0, 0, 0);
     const dt = Math.min(0.05, t - lastT);
@@ -218,13 +233,25 @@ export function mountLogin({ canvas, stage, card, clock, status, button }) {
   });
 
   // The sign-in transition (about 1.6 s, ending on black): two shockwaves spread out from Bangalore,
-  // the land dots light up in the accent colour behind the first one, and the camera eases in.
-  const LENGTH = 1.6, SECOND_WAVE = 0.4 / LENGTH;   // second wave 0.4 s behind the first
-  const PUSH_SPEED = 3;   // the camera pushes in over the first third (about half a second)
-  const smooth = (x) => x * x * (3 - 2 * x);
+  // the land dots light up in the accent colour behind the first one, and the globe whips into a spin
+  // round Bangalore and blows apart into flying dots.
+  const LENGTH = 1.6, SECOND_WAVE = 0.3 / LENGTH;   // second wave 0.3 s behind the first
+  const BREAK = SECOND_WAVE + 0.05;   // spin and scatter start just after the second wave leaves
   const lit = ACC.clone().lerp(new THREE.Color(1, 1, 1), 0.15);
+  const blrAxis = ll(...BLR).normalize(), whirlQ = new THREE.Quaternion();
+  let whirl = 0, scatter = null;   // spin angle so far; each dot's random fling direction
   function transition(dt) {
     warpT = Math.min(1, warpT + dt / LENGTH);
+    const brk = Math.max(0, (warpT - BREAK) / (1 - BREAK));
+    whirl += Math.pow(brk, 1.6) * 60 * dt;   // spin speed ramps up to about 10 turns a second
+    globe.quaternion.multiply(whirlQ.setFromAxisAngle(blrAxis, whirl));   // spin round Bangalore, along the pulse rings
+    core.material.opacity = 1 - Math.min(1, brk * 3);   // the planet empties out as it breaks apart
+    halo.material.uniforms.uA.value = 0.45 * (1 - Math.min(1, brk * 3));
+    if (brk > 0) {
+      pin.visible = ring.visible = false;
+      flights.forEach((f) => { f.line.material.opacity = f.head.material.opacity = 0; });
+      if (sea) sea.material.opacity = 0;
+    }
     const fade = Math.max(0, (warpT - 0.6) / 0.4);
     const radius = (start) => (warpT < start ? -9 : Math.pow((warpT - start) / (1 - start), 0.8) * Math.PI * 1.05);
     wave.visible = true;
@@ -237,10 +264,17 @@ export function mountLogin({ canvas, stage, card, clock, status, button }) {
         dots.col[i * 3] = 0.95 + (lit.r - 0.95) * m; dots.col[i * 3 + 1] = 0.95 + (lit.g - 0.95) * m; dots.col[i * 3 + 2] = 0.95 + (lit.b - 0.95) * m;
       }
       dots.geo.attributes.color.needsUpdate = true;
+      if (brk > 0) {
+        scatter = scatter || dots.home.map(() => new THREE.Vector3().randomDirection().multiplyScalar(0.4 + Math.random() * 1.2));
+        const fly = Math.pow(brk, 1.4) * 7;
+        for (let i = 0; i < dots.home.length; i++) {
+          tmp.copy(dots.home[i]).multiplyScalar(1 + fly * 0.35).addScaledVector(scatter[i], fly);
+          dots.pos[i * 3] = tmp.x; dots.pos[i * 3 + 1] = tmp.y; dots.pos[i * 3 + 2] = tmp.z;
+        }
+        dots.geo.attributes.position.needsUpdate = true;
+        dots.mat.size = DOT + brk * 0.03;
+      }
     }
-    const push = smooth(Math.min(1, warpT * PUSH_SPEED));
-    camera.position.copy(from).lerp(globe.position, Math.pow(push, 1.8) * 0.45);
-    camera.lookAt(globe.position.clone().multiplyScalar(Math.pow(push, 1.5)));
     canvas.style.opacity = String(1 - fade);   // the page behind is black
     if (warpT >= 1 && onWarped) { const done = onWarped; onWarped = null; done(); }
   }
@@ -248,7 +282,6 @@ export function mountLogin({ canvas, stage, card, clock, status, button }) {
   return {
     warp(done) {
       if (still) return done();
-      from = camera.position.clone();
       warping = true; warpT = 0; onWarped = done;
     },
     /** Put everything back (for replaying a transition, or coming back with the Back button). */
@@ -256,7 +289,9 @@ export function mountLogin({ canvas, stage, card, clock, status, button }) {
       warping = false; warpT = 0; onWarped = null;
       canvas.style.opacity = "1";
       wave.visible = false;
-      if (dots) { dots.mat.size = 0.028; dots.mat.opacity = 0.95; dots.done = false; dots.col.fill(0.95); dots.geo.attributes.color.needsUpdate = true; }
+      whirl = 0;
+      core.material.opacity = 1; halo.material.uniforms.uA.value = 0.45; pin.visible = ring.visible = true;
+      if (dots) { dots.mat.size = DOT; dots.mat.opacity = 0.95; dots.done = false; dots.col.fill(0.95); dots.geo.attributes.color.needsUpdate = true; }
     },
     stop() {
       renderer.setAnimationLoop(null);
