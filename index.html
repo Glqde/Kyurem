@@ -52,6 +52,8 @@
   /* ---- map ---- */
   #mapView { position: relative; }
   #map { position: absolute; inset: 0; background: var(--bg); }
+  /* press-and-hold on a phone opens our menu, not text selection or the phone's copy menu */
+  #map, .ctxmenu { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
   .overlay { position: absolute; z-index: 500; background: var(--card); border: 1px solid var(--line);
              border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,.12); }
   .mapbar { position: absolute; z-index: 500; top: 12px; left: 12px; right: 60px; display: flex; gap: 8px; flex-wrap: wrap; pointer-events: none; }
@@ -128,7 +130,7 @@
   /* always dark, whatever the board's theme; the globe lives in login3d.js */
   #login { position: fixed; inset: 0; z-index: 2000; background: #050506; color: #ecebe7; overflow: hidden; }
   #login[hidden] { display: none; }
-  #loginScene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #loginScene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }   /* a drag spins the globe, not the page */
   #login .stage { --accent: #38e1ff; position: absolute; top: 50%; right: max(16px, 7vw); transform: translateY(-50%);
                   perspective: 900px; width: min(380px, calc(100% - 32px)); }
   @media (max-width: 760px) { #login .stage { right: 50%; transform: translate(50%, 0); top: auto; bottom: max(22px, env(safe-area-inset-bottom)); } }
@@ -196,6 +198,10 @@
     .row .leg:nth-of-type(3) { grid-column: 2; }
     .onmap { display: none; }
     h1 { font-size: 16px; }
+    /* people: buttons go on their own line so names and addresses keep the full width */
+    .person { flex-wrap: wrap; }
+    .person .who { flex-basis: 100%; }
+    .person .acts { width: 100%; justify-content: flex-start; }
   }
 </style>
 </head>
@@ -255,7 +261,7 @@
       <span><i style="background:var(--warn)"></i>Moderate</span>
       <span><i style="background:var(--bad)"></i>Heavy</span>
     </div>
-    <div class="tip">Right-click a name for options, or the map for what to show</div>
+    <div class="tip" id="mapTip">Right-click a name for options, or the map for what to show</div>
   </div>
   <div class="ctxmenu" id="ctx" hidden></div>
 </section>
@@ -1212,6 +1218,9 @@ function signInFromLink() {
                 expires_at: Number(back.get("expires_at")) || undefined, expires_in: Number(back.get("expires_in")) || 3600 });
   return "";
 }
+
+// touch screens have no right-click; Leaflet turns press-and-hold into the same menu
+if (matchMedia("(pointer: coarse)").matches) $("mapTip").textContent = "Press and hold a name for options, or the map for what to show";
 
 applyRole();
 const linkProblem = signInFromLink();
