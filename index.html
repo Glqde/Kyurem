@@ -1,0 +1,1189 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<script>try { document.documentElement.dataset.theme = localStorage.getItem("theme") || "dark"; } catch (e) {}</script>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Office Distance Board</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="config.js"></script>
+<style>
+  :root {
+    --bg: #f6f5f2; --card: #ffffff; --ink: #1d1d1b; --muted: #6b6a66; --line: #e4e2dc;
+    --accent: #3a3a37; --good: #1f8a4c; --good-text: #1f8a4c; --warn: #b7791f; --warn-text: #b7791f; --bad: #c0392b; --bad-text: #c0392b; --none: #8a8984; --route: #55544f;
+    --good-bg: #e6f4ec; --warn-bg: #fbf1e0; --bad-bg: #fbe7e4; --casing: #ffffff;
+  }
+  /* Dark is the default; the button in the top-left switches to light and remembers it */
+  :root[data-theme="dark"] {
+    --bg: #151514; --card: #1f1f1d; --ink: #ecebe7; --muted: #9a9993; --line: #2f2f2c;
+    --accent: #4a4a47; --good: #23874f; --good-text: #5cc98a; --warn: #9a6210; --warn-text: #e3b05a; --bad: #c0392b; --bad-text: #ef7b6c; --none: #77766f; --route: #a3a29b;
+    --good-bg: #1c3226; --warn-bg: #3a2f1a; --bad-bg: #3d2320; --casing: #121211;
+    color-scheme: dark;
+  }
+  :root[data-theme="dark"] .leaflet-tile-pane .osm { filter: invert(1) hue-rotate(180deg) brightness(.92) contrast(.9) saturate(.6); }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--ink); display: flex; flex-direction: column;
+         height: 100dvh; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between;
+           padding: 12px 16px; border-bottom: 1px solid var(--line); background: var(--card); }
+  h1 { font-size: 18px; margin: 0; }
+  .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .themebtn { flex: none; width: 36px; height: 36px; border-radius: 9px; border: 1px solid var(--line);
+              background: var(--bg); color: var(--ink); font-size: 17px; cursor: pointer; display: grid; place-items: center; }
+  .themebtn:hover { border-color: var(--accent); }
+  .sub { color: var(--muted); font-size: 12px; }
+  .controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; background: var(--card); }
+  .seg button { font: inherit; font-size: 14px; padding: 6px 14px; border: 0; background: transparent; color: var(--ink); cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+  select, .btn { font: inherit; font-size: 14px; padding: 6px 12px; border-radius: 9px; border: 1px solid var(--line);
+                 background: var(--card); color: var(--ink); }
+  .btn { background: var(--accent); color: #fff; border-color: var(--accent); cursor: pointer; }
+  .btn:disabled { opacity: .6; cursor: default; }
+  .notice { margin: 12px 16px 0; padding: 12px 14px; border-radius: 10px; background: var(--bad-bg);
+            border: 1px solid var(--line); white-space: pre-wrap; font-size: 14px; }
+  .notice.demo { background: var(--warn-bg); }
+  .notice.info { background: var(--card); }
+  .view { flex: 1; min-height: 0; }
+  .view[hidden] { display: none; }
+
+  /* ---- map ---- */
+  #mapView { position: relative; }
+  #map { position: absolute; inset: 0; background: var(--bg); }
+  .overlay { position: absolute; z-index: 500; background: var(--card); border: 1px solid var(--line);
+             border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,.12); }
+  .mapbar { position: absolute; z-index: 500; top: 12px; left: 12px; right: 60px; display: flex; gap: 8px; flex-wrap: wrap; pointer-events: none; }
+  .mapbar > .overlay { position: static; padding: 4px; pointer-events: auto; }
+  #legend { bottom: 24px; left: 12px; padding: 8px 12px; font-size: 12px; color: var(--muted); display: flex; gap: 12px; flex-wrap: wrap; }
+  #legend i { display: inline-block; width: 18px; height: 4px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+  .pin { width: 28px; height: 28px; border-radius: 50%; color: #fff; font-weight: 700; font-size: 13px;
+         display: grid; place-items: center; border: 2px solid var(--casing); box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+  .pin.me { position: absolute; transform: translate(-50%, calc(-100% - 10px)); width: auto; height: 28px; border-radius: 14px;
+            padding: 0 10px; background: var(--ink); color: var(--card); white-space: nowrap; font-size: 12px; }
+  .pin.name { position: absolute; transform: translate(-50%, -50%); width: auto; height: 24px; border-radius: 12px;
+              padding: 0 9px; white-space: nowrap; font-size: 12px; cursor: pointer; }
+  .pin.dim { opacity: .35; }
+  #legend { flex-direction: column; gap: 4px; }
+  #legend .chips { display: flex; gap: 12px; }
+  #legend .tip { font-size: 11px; }
+  .ctxmenu { position: absolute; z-index: 800; min-width: 200px; padding: 4px; background: var(--card); color: var(--ink);
+             border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 6px 20px rgba(0,0,0,.3); }
+  .ctxmenu[hidden] { display: none; }
+  .ctxmenu .head { padding: 6px 12px 4px; font-size: 12px; color: var(--muted); }
+  .ctxmenu button { display: block; width: 100%; text-align: left; font: inherit; font-size: 14px; padding: 8px 12px;
+                    border: 0; border-radius: 7px; background: transparent; color: var(--ink); cursor: pointer; }
+  .ctxmenu button:hover, .ctxmenu button:focus-visible { background: var(--bg); outline: none; }
+  .ctxmenu button:disabled { color: var(--muted); background: transparent; cursor: default; }
+  .ctxmenu .tick { display: inline-block; width: 20px; }
+  .ctxmenu .sep { height: 1px; margin: 4px 8px; background: var(--line); }
+  .pin.name.dot { width: 14px; height: 14px; padding: 0; border-radius: 50%; }
+  .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--card); color: var(--ink); }
+  .leaflet-popup-content { margin: 12px 14px; min-width: 250px; font: 13px/1.4 system-ui, sans-serif; }
+  .pop b { font-size: 15px; }
+  .pop .addr { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+  .pop .line { display: flex; justify-content: space-between; gap: 10px; margin-top: 4px; }
+  .pop .line span:first-child { white-space: nowrap; color: var(--muted); }
+  .pop .line span:last-child { text-align: right; }
+
+  /* ---- list ---- */
+  #listView { overflow-y: auto; }
+  .listwrap { max-width: 900px; margin: 0 auto; padding: 16px 16px 40px; }
+  .listbar { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .list { display: grid; gap: 10px; }
+  .row { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; cursor: pointer;
+         display: grid; grid-template-columns: 32px 1fr 1fr 1fr auto; gap: 12px; align-items: center; }
+  .row:hover { border-color: var(--accent); }
+  .rank { font-weight: 700; font-size: 18px; color: var(--muted); }
+  .who b { display: block; font-size: 16px; }
+  .who span { color: var(--muted); font-size: 12px; }
+  .leg .dir { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .leg .time { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .leg .meta { font-size: 12px; color: var(--muted); }
+  .leg .err { color: var(--bad-text); font-size: 13px; }
+  .onmap { color: var(--ink); font-size: 13px; white-space: nowrap; }
+  .pill { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 999px; margin-left: 4px; font-weight: 600; }
+  .pill.good { background: var(--good-bg); color: var(--good-text); }
+  .pill.warn { background: var(--warn-bg); color: var(--warn-text); }
+  .pill.bad  { background: var(--bad-bg);  color: var(--bad-text); }
+  footer { margin-top: 16px; color: var(--muted); font-size: 12px; }
+
+  /* ---- people ---- */
+  #peopleView { overflow-y: auto; }
+  .sect { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 18px 0 8px; }
+  .sectbar { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
+  .person { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px;
+            display: flex; gap: 12px; align-items: center; }
+  .person .who { flex: 1; min-width: 0; }
+  .person .who > span { display: block; overflow-wrap: anywhere; }
+  .person .acts { display: flex; gap: 6px; }
+  .ghost { font: inherit; font-size: 13px; padding: 5px 11px; border-radius: 8px; border: 1px solid var(--line);
+           background: transparent; color: var(--ink); cursor: pointer; }
+  .ghost.danger { color: var(--bad-text); }
+  .ghost:disabled { opacity: .5; cursor: default; }
+  .empty { color: var(--muted); font-size: 14px; padding: 12px 2px; }
+
+  /* ---- sign in ---- */
+  #login { position: fixed; inset: 0; z-index: 2000; background: var(--bg); display: grid; place-items: center; padding: 16px; }
+  #login[hidden] { display: none; }
+  .loginbox { width: min(380px, 100%); background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+              padding: 22px 20px; display: grid; gap: 12px; }
+  .loginbox h2 { margin: 0; font-size: 18px; }
+  .loginbox p { margin: 0; color: var(--muted); font-size: 13px; }
+  .loginbox input { font: inherit; padding: 9px 11px; border-radius: 9px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  .loginbox input[hidden], .loginbox button[hidden] { display: none; }
+  .loginbox .msg { min-height: 1.2em; font-size: 13px; color: var(--muted); }
+  .loginbox .msg.bad { color: var(--bad-text); }
+  .whoami { font-size: 12px; color: var(--muted); }
+  .members { display: grid; gap: 8px; }
+  .addmember { display: flex; gap: 8px; }
+  .addmember input { flex: 1; min-width: 0; font: inherit; font-size: 14px; padding: 6px 10px; border-radius: 9px;
+                     border: 1px solid var(--line); background: var(--card); color: var(--ink); }
+  [data-owner-only][hidden] { display: none !important; }
+  .editor { background: var(--card); border: 1px solid var(--accent); border-radius: 12px; padding: 14px 16px;
+            margin-bottom: 8px; display: grid; gap: 10px; }
+  .editor[hidden] { display: none; }
+  .editor h2 { font-size: 16px; margin: 0; }
+  .editor label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+  .editor label[hidden] { display: none; }
+  .editor input { font: inherit; font-size: 15px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line);
+                  background: var(--bg); color: var(--ink); width: 100%; }
+  .edbtns { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .edbtns.end { justify-content: flex-end; }
+  .found { font-size: 13px; color: var(--good); }
+  .ederr { font-size: 13px; color: var(--bad-text); }
+  .ederr:empty { display: none; }
+  #edMap { height: 220px; border-radius: 10px; border: 1px solid var(--line); }
+  .centrebadge { display: inline-block; margin-left: 6px; font-size: 11px; font-weight: 600; padding: 1px 7px;
+                 border-radius: 999px; background: var(--ink); color: var(--card); vertical-align: 2px; }
+  .person .acts { flex-wrap: wrap; justify-content: flex-end; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: -4px; }
+  .pinned { display: inline-block; margin-left: 6px; font-size: 11px; font-weight: 600; padding: 1px 7px;
+            border-radius: 999px; background: var(--good-bg); color: var(--good-text); vertical-align: 2px; }
+  @media (max-width: 640px) {
+    .row { grid-template-columns: 28px 1fr 1fr; }
+    .who { grid-column: 2 / 4; }
+    .row .leg:nth-of-type(3) { grid-column: 2; }
+    .onmap { display: none; }
+    h1 { font-size: 16px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <button class="themebtn" id="theme" type="button"></button>
+    <div>
+      <h1>How far is everyone right now?</h1>
+      <div class="sub" id="sub">Loading live traffic…</div>
+    </div>
+  </div>
+  <div class="controls">
+    <div class="seg" role="tablist">
+      <button data-tab="map" aria-pressed="true">Map</button>
+      <button data-tab="list" aria-pressed="false">List</button>
+      <button data-tab="people" aria-pressed="false">People</button>
+    </div>
+    <button class="btn" id="refresh">Refresh</button>
+    <button class="ghost" id="signout" type="button" title="Sign out">Sign out</button>
+  </div>
+</header>
+<div id="login" hidden>
+  <form class="loginbox" id="loginForm" autocomplete="on">
+    <h2>How far is everyone right now?</h2>
+    <p>This board is invite-only. Type your email and we'll send you a sign-in link.</p>
+    <input id="loginEmail" type="email" autocomplete="email" placeholder="you@example.com" required>
+    <input id="loginCode" inputmode="numeric" autocomplete="one-time-code" placeholder="Or type the code, if the email has one" maxlength="10" hidden>
+    <button class="btn" id="loginBtn" type="submit">Send me a code</button>
+    <button class="ghost" id="loginBack" type="button" hidden>Use a different email</button>
+    <div class="msg" id="loginMsg"></div>
+  </form>
+</div>
+<div id="notice"></div>
+
+<section class="view" id="mapView">
+  <div id="map"></div>
+  <div class="mapbar">
+    <div class="overlay seg" role="group" aria-label="Travel by">
+      <button data-mode="car" aria-pressed="true">Car</button>
+      <button data-mode="walk" aria-pressed="false">Walking</button>
+    </div>
+    <div class="overlay seg" id="dirBox">
+      <button data-dir="there" aria-pressed="true">Me → them</button>
+      <button data-dir="back" aria-pressed="false">Them → me</button>
+    </div>
+  </div>
+  <div class="overlay" id="legend">
+    <div class="chips">
+      <span><i style="background:var(--good)"></i>Clear</span>
+      <span><i style="background:var(--warn)"></i>Moderate</span>
+      <span><i style="background:var(--bad)"></i>Heavy</span>
+    </div>
+    <div class="tip">Right-click a name for options, or the map for what to show</div>
+  </div>
+  <div class="ctxmenu" id="ctx" hidden></div>
+</section>
+
+<section class="view" id="listView" hidden>
+  <div class="listwrap">
+    <div class="listbar">
+      <div class="seg" role="group" aria-label="Travel by">
+        <button data-mode="car" aria-pressed="true">Car</button>
+        <button data-mode="walk" aria-pressed="false">Walking</button>
+      </div>
+      <select id="sort" aria-label="Sort by">
+        <option value="there">Closest: me → them</option>
+        <option value="back">Closest: them → me</option>
+        <option value="round">Shortest round trip</option>
+        <option value="km">Shortest distance</option>
+        <option value="name">Name</option>
+      </select>
+    </div>
+    <div class="list" id="list"></div>
+    <footer id="footer"></footer>
+  </div>
+</section>
+
+<section class="view" id="peopleView" hidden>
+  <div class="listwrap">
+    <form class="editor" id="editor" hidden autocomplete="off">
+      <h2 id="edTitle">Add a friend</h2>
+      <label id="edNameRow">Name<input id="edName" maxlength="60" placeholder="e.g. Rahul"></label>
+      <label>Office address<input id="edAddr" placeholder="Area + landmark, e.g. Manyata Tech Park, Hebbal"></label>
+      <div class="edbtns">
+        <button type="button" class="ghost" id="edFind">Find on map</button>
+        <span class="found" id="edFound"></span>
+      </div>
+      <div id="edMap"></div>
+      <div class="hint">Drag the pin, or click the map, to put it on the exact building.</div>
+      <label>Exact spot (or paste coordinates from Google Maps)
+        <input id="edCoords" inputmode="decimal" placeholder="e.g. 12.930700, 77.693500"></label>
+      <div class="ederr" id="edErr"></div>
+      <div class="edbtns end">
+        <button type="button" class="ghost" id="edCancel">Cancel</button>
+        <button type="submit" class="btn" id="edSave" disabled>Save</button>
+      </div>
+    </form>
+
+    <div class="sectbar">
+      <h3 class="sect">People</h3>
+      <button class="btn" id="addFriend" data-owner-only>+ Add person</button>
+    </div>
+    <div class="list" id="people"></div>
+    <div data-owner-only>
+      <div class="sectbar"><h3 class="sect">Who can open this board</h3></div>
+      <form class="addmember" id="addMember">
+        <input id="memberEmail" type="email" placeholder="friend@example.com" aria-label="Friend's email">
+        <button class="btn" type="submit">Invite</button>
+      </form>
+      <div class="members" id="members"></div>
+    </div>
+    <footer id="peopleFoot">Changes save online for everyone on the board. The TomTom key stays on the server.</footer>
+  </div>
+</section>
+
+<script>
+const STALE_MS = 10 * 60 * 1000;
+const BANGALORE = [12.9716, 77.5946];
+let board = null, dir = "there", selected = null, fittedFor = null;
+let mode = "car", walks = null, walksFor = null;   // walks: what /api/walk sent for the board checked at walksFor
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+// ---- sign-in (Supabase email codes) and calls to the "api" function
+const CFG = window.BOARD_CONFIG || {};
+const FN = `${String(CFG.supabaseUrl || "").replace(/\/$/, "")}/functions/v1/api`;
+let session = null;
+try { session = JSON.parse(localStorage.getItem("session") || "null"); } catch (e) {}
+let me = { email: "", role: "friend" };
+
+function keepSession(s) {
+  session = s && s.access_token ? { access_token: s.access_token, refresh_token: s.refresh_token,
+                                    expires_at: s.expires_at || Math.floor(Date.now() / 1000) + (s.expires_in || 3600) } : null;
+  try { session ? localStorage.setItem("session", JSON.stringify(session)) : localStorage.removeItem("session"); } catch (e) {}
+}
+
+async function auth(path, body) {
+  const res = await fetch(`${CFG.supabaseUrl}/auth/v1/${path}`, {
+    method: "POST", headers: { apikey: CFG.anonKey, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.msg || data.error_description || data.message || "Sign-in failed. Try again.");
+  return data;
+}
+
+let refreshing = null;
+async function accessToken() {
+  if (!session) return null;
+  if (session.expires_at - 60 > Date.now() / 1000) return session.access_token;
+  // one refresh at a time, however many requests are waiting
+  refreshing = refreshing || auth("token?grant_type=refresh_token", { refresh_token: session.refresh_token })
+    .then(keepSession, () => keepSession(null)).finally(() => { refreshing = null; });
+  await refreshing;
+  return session && session.access_token;
+}
+
+async function call(path, body) {
+  const token = await accessToken();
+  if (!token) { showLogin(); throw new Error("signed out"); }
+  const res = await fetch(FN + path, body === undefined ? { headers: { Authorization: `Bearer ${token}` } } : {
+    method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (res.status === 401) { keepSession(null); showLogin("Your sign-in has expired. Please sign in again."); throw new Error("signed out"); }
+  return res.json();
+}
+const apiGet = url => call(url.replace(/^\/api/, ""));
+const store = {
+  get(k, d) { try { return localStorage.getItem(k) || d; } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+};
+
+// ---------------------------------------------------------------- formatting
+
+const ok = leg => leg && !leg.error;
+
+function fmtTime(sec) {
+  const m = Math.round(sec / 60);
+  return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
+}
+
+function trafficClass(leg) {
+  if (!ok(leg)) return "none";
+  const extra = (leg.seconds - leg.normal_seconds) / 60;
+  const ratio = leg.seconds / Math.max(leg.normal_seconds, 1);
+  if (extra < 2 || ratio < 1.25) return "good";
+  return ratio < 1.6 ? "warn" : "bad";
+}
+
+function trafficPill(leg) {
+  const extra = Math.round((leg.seconds - leg.normal_seconds) / 60);
+  if (extra < 2) return `<span class="pill good">clear</span>`;
+  return `<span class="pill ${trafficClass(leg)}">+${extra} min traffic</span>`;
+}
+
+function legSummary(leg) {
+  return ok(leg) ? `<b>${fmtTime(leg.seconds)}</b> · ${(leg.meters / 1000).toFixed(1)} km ${trafficPill(leg)}`
+                 : `<span style="color:var(--bad-text)">${esc(leg ? leg.error : "No data")}</span>`;
+}
+
+function sortKey(f, mode) {
+  const big = Number.POSITIVE_INFINITY;
+  if (mode === "there") return ok(f.there) ? f.there.seconds : big;
+  if (mode === "back") return ok(f.back) ? f.back.seconds : big;
+  if (mode === "round") return ok(f.there) && ok(f.back) ? f.there.seconds + f.back.seconds : big;
+  if (mode === "km") return ok(f.there) ? f.there.meters : big;
+  return 0;
+}
+
+function ordered(mode) {
+  return [...board.friends].sort((a, b) =>
+    mode === "name" ? a.name.localeCompare(b.name) : sortKey(a, mode) - sortKey(b, mode));
+}
+
+// ---------------------------------------------------------------- map
+
+const map = L.map("map", { zoomControl: false }).setView(BANGALORE, 11);
+L.control.zoom({ position: "topright" }).addTo(map);
+const TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+const OSM_CREDIT = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+const FADED_URL = theme => "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/" +
+  `World_${theme === "dark" ? "Dark" : "Light"}_Gray_Base/MapServer/tile/{z}/{y}/{x}`;
+const bases = {
+  full: L.tileLayer(TILE_URL, { maxZoom: 19, className: "osm", attribution: OSM_CREDIT }),
+  // Streets only, no place names: the routes are the only thing that stands out
+  faded: L.tileLayer(FADED_URL("dark"), { maxZoom: 19, maxNativeZoom: 16, attribution: "Base map &copy; Esri, HERE, Garmin, &copy; OpenStreetMap contributors" }),
+};
+// Live traffic sits in its own pane so dark mode's colour flip doesn't turn red into blue
+map.createPane("traffic").style.zIndex = 350;
+const LIVE_URL = `${FN}/tiles/{z}/{x}/{y}.png`;
+const liveLayer = L.tileLayer(LIVE_URL, { pane: "traffic", maxZoom: 19, opacity: .85, attribution: "Live traffic &copy; TomTom" });
+const layer = L.layerGroup().addTo(map);
+
+// ---- what the map shows (right-click empty map); remembered in this browser
+const VIEW_DEFAULT = { base: "full", routes: true, traffic: true, labels: true, live: false };
+let view = { ...VIEW_DEFAULT };
+try { view = { ...VIEW_DEFAULT, ...JSON.parse(store.get("mapView", "{}")) }; } catch (e) {}
+const liveAvailable = () => !!(board && board.live_traffic);
+
+function applyView() {
+  store.set("mapView", JSON.stringify(view));
+  Object.entries(bases).forEach(([k, l]) => k === view.base ? l.addTo(map) : l.remove());
+  if (view.live && liveAvailable()) liveLayer.setUrl(`${LIVE_URL}?t=${board.tile_pass}`).addTo(map); else liveLayer.remove();
+}
+
+function refreshLive() {   // new traffic picture; tiles are reused for 2 minutes
+  if (map.hasLayer(liveLayer)) liveLayer.setUrl(`${LIVE_URL}?t=${board.tile_pass}&v=${Date.now()}`);
+}
+setInterval(refreshLive, 3 * 60 * 1000);
+let drawn = {};   // friend name -> { lines: [...], marker }
+
+map.on("click", () => select(null));
+// Keep tiles filling the box when the window, phone orientation or layout changes size
+new ResizeObserver(() => map.invalidateSize()).observe($("map"));
+
+// The centre has a name (e.g. Manit), and it changes when someone else is made central
+const centreName = () => (board && !board.error && board.office_name) || trip.centre || "centre";
+const dirLabel = d => d === "there" ? `${centreName()} → them` : `Them → ${centreName()}`;
+
+function applyCentreLabels() {
+  document.querySelectorAll("[data-dir]").forEach(b => b.textContent = dirLabel(b.dataset.dir));
+  document.querySelector('#sort option[value="there"]').textContent = `Closest: ${dirLabel("there")}`;
+  document.querySelector('#sort option[value="back"]').textContent = `Closest: ${dirLabel("back")}`;
+}
+
+function popupHtml(f) {
+  return `<div class="pop"><b>${esc(f.name)}</b><div class="addr">${esc(f.address)}</div>
+    <div class="line"><span>${esc(dirLabel("there"))}</span><span>${legSummary(f.there)}</span></div>
+    <div class="line"><span>${esc(dirLabel("back"))}</span><span>${legSummary(f.back)}</span></div>${walkLine(f.name)}</div>`;
+}
+
+// ---- walking: looked up once a day, only after Walking is picked
+
+const walkOf = name => walks && !walks.error ? walks.walks.find(w => w.name === name) : null;
+const walkSummary = w => ok(w) ? `<b>${fmtTime(w.seconds)}</b> · ${(w.meters / 1000).toFixed(1)} km`
+                               : `<span style="color:var(--bad-text)">${esc(w ? w.error : "No data")}</span>`;
+const walkLine = name => walkOf(name) ? `<div class="line"><span>Walking</span><span>${walkSummary(walkOf(name))}</span></div>` : "";
+
+async function loadWalks() {
+  if (!board || board.error || board.pins_only) return;
+  const forBoard = board.checked_at;
+  walks = null;
+  render();
+  let data;
+  try { data = await apiGet("/api/walk"); } catch (e) { data = { error: "Can't reach the server. Check your internet connection." }; }
+  if (!board || board.checked_at !== forBoard) return;   // the board changed meanwhile; that load fetches its own
+  walks = data;
+  walksFor = forBoard;
+  if (data.lookups_today != null) board.lookups_today = data.lookups_today;
+  render();
+}
+
+function setMode(m) {
+  mode = m;
+  store.set("mode", m);
+  document.querySelectorAll("[data-mode]").forEach(b => b.setAttribute("aria-pressed", b.dataset.mode === m));
+  if (m === "walk" && board && !board.error && walksFor !== board.checked_at) loadWalks();
+  else if (board && !board.error) render();
+}
+
+// ---- right-click menu on map pins
+
+const menu = $("ctx");
+let menuFor = null;   // { name, friend } — friend is set when there's a route to them
+
+function openMenu(e, name, friend = null) {
+  L.DomEvent.preventDefault(e.originalEvent);
+  L.DomEvent.stopPropagation(e);
+  menuFor = { name, friend };
+  const isCentre = name === board.office_name;
+  const items = [
+    ...(isCentre ? [] : [["central", `★ Make ${name} the centre`]]),
+    ...(me.role === "owner" ? [["edit", `Edit ${name}`]] : []),
+    ...(friend ? [["gmaps", "Open in Google Maps"]] : []),
+  ];
+  menu.innerHTML = `<div class="head">${esc(isCentre ? `${name} (centre)` : name)}</div>` +
+    items.map(([act, text]) => `<button type="button" data-ctx="${act}">${esc(text)}</button>`).join("");
+  placeMenu(e.containerPoint);
+}
+
+function placeMenu(at) {
+  menu.hidden = false;
+  // keep the menu inside the map
+  const box = $("mapView").getBoundingClientRect();
+  const x = Math.min(at.x, box.width - menu.offsetWidth - 8);
+  const y = Math.min(at.y, box.height - menu.offsetHeight - 8);
+  menu.style.left = `${Math.max(8, x)}px`;
+  menu.style.top = `${Math.max(8, y)}px`;
+}
+
+function closeMenu() {
+  menu.hidden = true;
+  menuFor = null;
+}
+
+// ---- right-click on empty map: what to show
+function viewMenuHtml() {
+  const item = (act, on, text, disabled = false) =>
+    `<button type="button" data-view="${act}"${disabled ? " disabled" : ""}><span class="tick">${on ? "✓" : ""}</span>${esc(text)}</button>`;
+  return `<div class="head">Map</div>` +
+    item("base:full", view.base === "full", "Full map") +
+    item("base:faded", view.base === "faded", "Faded streets, no place names") +
+    `<div class="sep"></div><div class="head">Show</div>` +
+    item("routes", view.routes, "Routes") +
+    item("traffic", view.traffic, "Traffic colours") +
+    item("labels", view.labels, "Names on pins") +
+    item("live", view.live && liveAvailable(), liveAvailable() ? "Live traffic on all roads" : "Live traffic (needs a TomTom key)", !liveAvailable()) +
+    `<div class="sep"></div>` + item("reset", false, "Reset to normal");
+}
+
+function openViewMenu(e) {
+  L.DomEvent.preventDefault(e.originalEvent);
+  menuFor = { view: true };
+  menu.innerHTML = viewMenuHtml();
+  placeMenu(e.containerPoint);
+}
+map.on("contextmenu", openViewMenu);
+
+menu.addEventListener("click", e => {
+  const v = e.target.closest("[data-view]");
+  if (v) {   // stays open so several things can be switched in one go
+    const act = v.dataset.view;
+    if (act === "reset") view = { ...VIEW_DEFAULT };
+    else if (act.startsWith("base:")) view.base = act.slice(5);
+    else view[act] = !view[act];
+    applyView();
+    if (board && !board.error) renderMap();
+    menu.innerHTML = viewMenuHtml();
+    return;
+  }
+  const b = e.target.closest("[data-ctx]");
+  if (!b) return;
+  const { name, friend: f } = menuFor;
+  closeMenu();
+  if (b.dataset.ctx === "central") makeCentral(name);
+  else if (b.dataset.ctx === "edit") {
+    showTab("people");
+    openEditor(trip.people.findIndex(x => x.name === name));
+  } else if (b.dataset.ctx === "gmaps") {
+    const spot = (point, address) => point ? `${point[0]},${point[1]}` : address;
+    const centre = spot(board.office_point, board.office), them = spot(f.point, f.address);
+    const [from, to] = dir === "there" ? [centre, them] : [them, centre];
+    window.open("https://www.google.com/maps/dir/?api=1&travelmode=" + (mode === "walk" ? "walking" : "driving") + "&origin=" + encodeURIComponent(from) +
+                "&destination=" + encodeURIComponent(to), "_blank", "noopener");
+  }
+});
+map.on("movestart zoomstart", closeMenu);
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeMenu(); });
+document.addEventListener("pointerdown", e => { if (!menu.hidden && !menu.contains(e.target)) closeMenu(); });
+
+// Only the centre changes; everyone keeps their place in the People list
+async function makeCentral(name) {
+  selected = null;
+  map.closePopup();
+  $("sub").textContent = `Making ${name} the centre and checking live traffic from there…`;
+  let res;
+  try { res = await postJSON("/api/centre", { centre: name }); } catch (e) { res = { error: "Can't reach the server. Check your internet connection." }; }
+  if (res.error) return alert(res.error);
+  await loadTrip();
+  load();
+}
+
+// No centre yet (or nobody else): just everyone's pins, ready to right-click
+function renderPins() {
+  const bounds = [];
+  board.people.forEach(p => {
+    if (!p.point) return;
+    const isCentre = p.name === board.office_name;
+    const text = view.labels ? (isCentre ? "★ " : "") + esc(p.name) : (isCentre ? "★" : "");
+    const marker = L.marker(p.point, {
+      icon: L.divIcon({ className: "", html: `<div class="pin name${text ? "" : " dot"}" style="background:${css("--accent")}">${text}</div>`,
+                        iconSize: [0, 0], iconAnchor: [0, 0] }),
+      title: p.name,
+    }).bindPopup(`<div class="pop"><b>${esc(p.name)}</b><div class="addr">${esc(p.address)}</div></div>`).addTo(layer);
+    marker.on("contextmenu", e => openMenu(e, p.name));
+    bounds.push(p.point);
+  });
+  const key = "pins|" + board.people.map(p => p.name).join("|");
+  if (bounds.length && fittedFor !== key && !$("mapView").hidden) {
+    map.fitBounds(bounds, { padding: [50, 50], maxZoom: 14 });
+    fittedFor = key;
+  }
+}
+
+// Walking: one walk per person (same either way), drawn as dotted paths
+function renderWalks() {
+  if (!walks) return;
+  const dots = css("--ink"), casing = css("--casing"), bounds = [];
+  board.friends.forEach(f => {
+    const w = walkOf(f.name), lines = [];
+    if (ok(w) && w.path && view.routes) {
+      lines.push(L.polyline(w.path, { color: casing, weight: 8, opacity: .9, dashArray: "1 10", interactive: false }));
+      const line = L.polyline(w.path, { color: dots, weight: 5, opacity: .9, dashArray: "1 10" });
+      line.bindTooltip(`${esc(f.name)} · ${fmtTime(w.seconds)} walk`, { sticky: true });
+      line.on("click", e => { L.DomEvent.stopPropagation(e); select(f.name); });
+      line.on("contextmenu", e => openMenu(e, f.name, f));
+      lines.push(line);
+      lines.forEach(l => l.addTo(layer));
+      w.path.forEach(p => bounds.push(p));
+    }
+    drawn[f.name] = { lines };
+    if (!f.point) return;
+    const marker = L.marker(f.point, {
+      icon: L.divIcon({ className: "", html: view.labels ? `<div class="pin name" style="background:${css("--accent")}">${esc(f.name)}</div>`
+                                                       : `<div class="pin name dot" style="background:${css("--accent")}"></div>`,
+                        iconSize: [0, 0], iconAnchor: [0, 0] }),
+      title: f.name,
+    }).bindPopup(`<div class="pop"><b>${esc(f.name)}</b><div class="addr">${esc(f.address)}</div>
+      <div class="line"><span>Walking</span><span>${walkSummary(w)}</span></div>
+      <div class="line"><span>Drive ${esc(dirLabel("there"))}</span><span>${legSummary(f.there)}</span></div></div>`).addTo(layer);
+    marker.on("click", () => select(f.name));
+    marker.on("contextmenu", e => openMenu(e, f.name, f));
+    drawn[f.name].marker = marker;
+    bounds.push(f.point);
+  });
+  if (board.office_point) {
+    const tip = `${esc(board.office_name)} (centre) · ${esc(board.office)}`;
+    L.circleMarker(board.office_point, { radius: 6, color: casing, weight: 2, fillColor: css("--ink"), fillOpacity: 1 })
+      .bindTooltip(tip).on("contextmenu", e => openMenu(e, board.office_name)).addTo(layer);
+    L.marker(board.office_point, {
+      icon: L.divIcon({ className: "", html: `<div class="pin me">★</div>`, iconSize: [0, 0], iconAnchor: [0, 0] }),
+      zIndexOffset: 1000,
+    }).bindTooltip(tip).on("contextmenu", e => openMenu(e, board.office_name)).addTo(layer);
+  }
+  highlight();
+}
+
+function renderMap() {
+  layer.clearLayers();
+  drawn = {};
+  if (!board || board.error) return;
+  // directions and traffic colours only mean something once there are routes
+  $("dirBox").style.display = board.pins_only || mode === "walk" ? "none" : "";
+  document.querySelector("#legend .chips").style.display = board.pins_only || !view.traffic || mode === "walk" ? "none" : "";
+  if (board.pins_only) return renderPins();
+  if (mode === "walk") return renderWalks();
+  const route = css("--route");
+  const colors = view.traffic ? { good: css("--good"), warn: css("--warn"), bad: css("--bad"), none: css("--none") }
+                              : { good: route, warn: route, bad: route, none: route };
+  const casing = css("--casing");
+  const bounds = [];
+
+  // Draw slowest first so the quickest routes sit on top where they overlap
+  const friends = ordered(dir);
+  [...friends].reverse().forEach(f => {
+    const leg = f[dir];
+    const color = colors[trafficClass(leg)];
+    const lines = [];
+    let path = ok(leg) && leg.path;
+    let dashed = false;
+    if (!path && f.point && board.office_point) {   // no road shape: fall back to a dashed straight line
+      path = dir === "there" ? [board.office_point, f.point] : [f.point, board.office_point];
+      dashed = true;
+    }
+    if (path && view.routes) {
+      lines.push(L.polyline(path, { color: casing, weight: 8, opacity: .9, interactive: false }));
+      const line = L.polyline(path, { color, weight: 5, opacity: .9, dashArray: dashed ? "6 8" : null });
+      line.bindTooltip(`${esc(f.name)} · ${ok(leg) ? fmtTime(leg.seconds) : "no route"}`, { sticky: true });
+      line.on("click", e => { L.DomEvent.stopPropagation(e); select(f.name); });
+      line.on("contextmenu", e => openMenu(e, f.name, f));
+      lines.push(line);
+      lines.forEach(l => l.addTo(layer));
+      path.forEach(p => bounds.push(p));
+    }
+    drawn[f.name] = { lines };
+  });
+
+  friends.forEach((f, i) => {
+    if (!f.point) return;
+    const color = colors[trafficClass(f[dir])];
+    const marker = L.marker(f.point, {
+      icon: L.divIcon({ className: "", html: view.labels ? `<div class="pin name" style="background:${color}">${esc(f.name)}</div>`
+                                                       : `<div class="pin name dot" style="background:${color}"></div>`,
+                        iconSize: [0, 0], iconAnchor: [0, 0] }),
+      title: f.name,
+    }).bindPopup(popupHtml(f)).addTo(layer);
+    marker.on("click", () => select(f.name));
+    marker.on("contextmenu", e => openMenu(e, f.name, f));
+    drawn[f.name].marker = marker;
+    bounds.push(f.point);
+  });
+
+  if (board.office_point) {
+    // A dot on the exact spot, with the label floating above it so it doesn't hide nearby friends
+    const tip = `${esc(board.office_name)} (centre) · ${esc(board.office)}`;
+    L.circleMarker(board.office_point, { radius: 6, color: casing, weight: 2, fillColor: css("--ink"), fillOpacity: 1 })
+      .bindTooltip(tip).on("contextmenu", e => openMenu(e, board.office_name)).addTo(layer);
+    L.marker(board.office_point, {
+      icon: L.divIcon({ className: "", html: `<div class="pin me">★</div>`, iconSize: [0, 0], iconAnchor: [0, 0] }),
+      zIndexOffset: 1000,
+    }).bindTooltip(tip).on("contextmenu", e => openMenu(e, board.office_name)).addTo(layer);
+    bounds.push(board.office_point);
+  }
+
+  // Frame everyone the first time (or when the friend list changes), then leave the view where the user put it
+  const key = board.friends.map(f => f.address).join("|");
+  if (bounds.length && fittedFor !== key && !$("mapView").hidden) {
+    map.fitBounds(bounds, { padding: [50, 50], maxZoom: 14 });
+    fittedFor = key;
+  }
+  highlight();
+}
+
+function highlight() {
+  Object.entries(drawn).forEach(([name, d]) => {
+    const on = !selected || name === selected;
+    d.lines.forEach((l, i) => {
+      l.setStyle({ opacity: on ? .9 : .15, weight: i % 2 ? (name === selected ? 7 : 5) : (name === selected ? 10 : 8) });
+      if (name === selected) l.bringToFront();
+    });
+    const pin = d.marker && d.marker.getElement() && d.marker.getElement().firstChild;
+    if (pin) pin.classList.toggle("dim", !on);
+    if (d.marker) d.marker.setZIndexOffset(name === selected ? 500 : 0);   // selected name sits above overlapping ones
+  });
+}
+
+function select(name) {
+  selected = name;
+  highlight();
+  const d = name && drawn[name];
+  if (d && d.marker) {
+    d.marker.openPopup();
+  } else if (!name) {
+    map.closePopup();
+  }
+}
+
+// ---------------------------------------------------------------- list
+
+function legHtml(label, leg) {
+  if (!ok(leg)) return `<div class="leg"><div class="dir">${label}</div><div class="err">${esc(leg ? leg.error : "No data")}</div></div>`;
+  return `<div class="leg"><div class="dir">${label}</div>
+    <div class="time">${fmtTime(leg.seconds)}</div>
+    <div class="meta">${(leg.meters / 1000).toFixed(1)} km ${trafficPill(leg)}</div></div>`;
+}
+
+function renderList() {
+  if (!board || board.error) return;
+  if (board.pins_only) return $("list").innerHTML = `<div class="empty">${esc(board.message)}</div>`;
+  $("sort").hidden = mode === "walk";
+  if (mode === "walk") return renderWalkList();
+  $("list").innerHTML = ordered($("sort").value).map((f, i) => `
+    <div class="row" data-name="${esc(f.name)}">
+      <div class="rank">${i + 1}</div>
+      <div class="who"><b>${esc(f.name)}</b><span>${esc(f.address)}</span></div>
+      ${legHtml(esc(dirLabel("there")), f.there)}
+      ${legHtml(esc(dirLabel("back")), f.back)}
+      <div class="onmap">Show on map ›</div>
+    </div>`).join("");
+}
+
+function walkLegHtml(w) {
+  if (!ok(w)) return `<div class="leg"><div class="dir">Walking</div><div class="err">${esc(w ? w.error : "No data")}</div></div>`;
+  return `<div class="leg"><div class="dir">Walking</div>
+    <div class="time">${fmtTime(w.seconds)}</div><div class="meta">${(w.meters / 1000).toFixed(1)} km</div></div>`;
+}
+
+function renderWalkList() {
+  if (!walks) return $("list").innerHTML = `<div class="empty">Looking up walking routes…</div>`;
+  if (walks.error) return $("list").innerHTML = `<div class="empty">${esc(walks.error)}</div>`;
+  const secs = f => ok(walkOf(f.name)) ? walkOf(f.name).seconds : Number.POSITIVE_INFINITY;
+  $("list").innerHTML = [...board.friends].sort((a, b) => secs(a) - secs(b)).map((f, i) => `
+    <div class="row" data-name="${esc(f.name)}">
+      <div class="rank">${i + 1}</div>
+      <div class="who"><b>${esc(f.name)}</b><span>${esc(f.address)}</span></div>
+      ${walkLegHtml(walkOf(f.name))}
+      ${legHtml(`Drive ${esc(dirLabel("there"))}`, f.there)}
+      <div class="onmap">Show on map ›</div>
+    </div>`).join("");
+}
+
+$("list").addEventListener("click", e => {
+  const row = e.target.closest(".row");
+  if (!row) return;
+  showTab("map");
+  const f = board.friends.find(x => x.name === row.dataset.name);
+  if (f && f.point) map.flyTo(f.point, Math.max(map.getZoom(), 13), { duration: .6 });
+  select(row.dataset.name);
+});
+
+// ---------------------------------------------------------------- people
+
+let trip = { centre: null, people: [] };   // centre is a person's name, or null for pins only
+let editing = null;   // { index (-1 = new), original address }
+let pin = null;       // [lat, lng] chosen in the editor: from a lookup, a drag, a map click or pasted coordinates
+let edMap = null, edPin = null;
+
+const postJSON = (url, body) => call(url.replace(/^\/api/, ""), body);
+
+function parseCoords(text) {
+  const m = String(text || "").trim().match(/^\(?\s*(-?\d{1,2}(?:\.\d+)?)\s*[, ]\s*(-?\d{1,3}(?:\.\d+)?)\s*\)?$/);
+  if (!m) return null;
+  const lat = Number(m[1]), lng = Number(m[2]);
+  return Math.abs(lat) <= 90 && Math.abs(lng) <= 180 ? [lat, lng] : null;
+}
+
+const coordsText = p => `${p[0].toFixed(6)}, ${p[1].toFixed(6)}`;
+const pinnedBadge = p => p ? `<span class="pinned" title="${coordsText(p)}">exact pin</span>` : "";
+
+async function loadTrip() {
+  try {
+    const t = await apiGet("/api/trip");
+    if (!t.error) { trip = t; me = { email: t.me, role: t.role }; }
+  } catch (e) {}
+  applyRole();
+  renderPeople();
+  applyCentreLabels();
+}
+
+function renderPeople() {
+  $("people").innerHTML = trip.people.length ? trip.people.map((p, i) => {
+    const isCentre = p.name === trip.centre;
+    return `
+    <div class="person">
+      <div class="who"><b>${esc(p.name)}${isCentre ? `<span class="centrebadge">★ centre</span>` : ""}${pinnedBadge(p.point)}</b>
+        <span>${esc(p.address)}</span></div>
+      <div class="acts">
+        ${isCentre ? "" : `<button class="ghost" data-act="centre" data-i="${i}">Make centre</button>`}
+        ${me.role === "owner" ? `<button class="ghost" data-act="edit" data-i="${i}">Edit</button>
+        <button class="ghost danger" data-act="remove" data-i="${i}">Remove</button>` : ""}</div>
+    </div>`;
+  }).join("") : `<div class="empty">${me.role === "owner" ? "Nobody added yet. Add yourself and your friends." : "Nobody on the board yet."}</div>`;
+}
+
+$("peopleView").addEventListener("click", e => {
+  const b = e.target.closest("[data-act]");
+  if (!b) return;
+  const p = trip.people[Number(b.dataset.i)];
+  if (b.dataset.act === "centre") makeCentral(p.name);
+  else if (b.dataset.act === "edit") openEditor(Number(b.dataset.i));
+  else if (b.dataset.act === "remove" &&
+           confirm(p.name === trip.centre ? `Remove ${p.name}? They're the centre, so the map will show just pins until you pick a new one.`
+                                          : `Remove ${p.name}?`))
+    saveTrip(trip.people.filter(x => x !== p));
+});
+$("addFriend").onclick = () => openEditor(-1);
+
+function openEditor(index) {
+  const f = index >= 0 ? trip.people[index] : null;
+  const original = f ? f.address : "";
+  editing = { index, original };
+  pin = f ? f.point : null;
+  $("edTitle").textContent = f ? `Edit ${f.name}` : "Add a person";
+  $("edName").value = f ? f.name : "";
+  $("edAddr").value = original;
+  $("edCoords").value = pin ? coordsText(pin) : "";
+  $("edFound").textContent = pin ? "Using the exact pin below." : "";
+  $("edErr").textContent = "";
+  $("editor").hidden = false;
+  showPreview();
+  refreshSave();
+  $("peopleView").scrollTop = 0;
+  (f ? $("edAddr") : $("edName")).focus();
+}
+
+function closeEditor() {
+  $("editor").hidden = true;
+  editing = null;
+}
+
+// Save needs a pin, unless an existing entry's address is unchanged (e.g. just renaming)
+function canSave() {
+  const address = $("edAddr").value.trim();
+  return !!pin || (!!address && address === editing.original);
+}
+
+function refreshSave() {
+  $("edSave").disabled = !canSave();
+}
+
+function showPreview() {
+  if (!edMap) {
+    edMap = L.map("edMap", { attributionControl: false });
+    L.tileLayer(TILE_URL, { maxZoom: 19, className: "osm" }).addTo(edMap);
+    edMap.on("click", e => setPin([e.latlng.lat, e.latlng.lng], "Pin placed. Save to use this exact spot."));
+    new ResizeObserver(() => edMap.invalidateSize()).observe($("edMap"));
+  }
+  edMap.invalidateSize();
+  if (pin) edMap.setView(pin, 16); else edMap.setView(BANGALORE, 11);
+  drawPin();
+}
+
+function drawPin() {
+  if (!pin) {
+    if (edPin) { edPin.remove(); edPin = null; }
+    return;
+  }
+  if (edPin) return edPin.setLatLng(pin);
+  edPin = L.marker(pin, {
+    draggable: true, autoPan: true,
+    icon: L.divIcon({ className: "", html: `<div class="pin" style="background:var(--bad);cursor:grab">✓</div>`, iconSize: [28, 28], iconAnchor: [14, 14] }),
+  }).addTo(edMap);
+  edPin.on("dragend", () => {
+    const ll = edPin.getLatLng();
+    setPin([ll.lat, ll.lng], "Pin moved. Save to use this exact spot.");
+  });
+}
+
+// fromCoords: the user is typing in the coordinates box, so don't rewrite it under them
+function setPin(point, message, { recenter = false, fromCoords = false } = {}) {
+  pin = [Number(point[0].toFixed(6)), Number(point[1].toFixed(6))];
+  if (!fromCoords) $("edCoords").value = coordsText(pin);
+  $("edFound").textContent = message;
+  $("edErr").textContent = "";
+  drawPin();
+  if (recenter) edMap.setView(pin, Math.max(edMap.getZoom(), 16));
+  refreshSave();
+}
+
+$("edAddr").oninput = () => {
+  if (pin && $("edAddr").value.trim() !== editing.original)
+    $("edFound").textContent = "Address changed. Press Find on map to move the pin, or keep it where it is.";
+  refreshSave();
+};
+
+$("edCoords").oninput = () => {
+  const text = $("edCoords").value.trim();
+  const point = parseCoords(text);
+  if (point) setPin(point, "Pin set from coordinates.", { recenter: true, fromCoords: true });
+  else if (text) $("edErr").textContent = "Coordinates look like 12.930700, 77.693500 (latitude, longitude).";
+  else $("edErr").textContent = "";
+};
+
+$("edCancel").onclick = closeEditor;
+
+$("edFind").onclick = async () => {
+  const address = $("edAddr").value.trim();
+  $("edErr").textContent = "";
+  $("edFound").textContent = "Looking it up…";
+  $("edFind").disabled = true;
+  let res;
+  try { res = await postJSON("/api/lookup", { address }); } catch (e) { res = { error: "Can't reach the server. Check your internet connection." }; }
+  $("edFind").disabled = false;
+  if (res.error) {
+    $("edFound").textContent = "";
+    $("edErr").textContent = `${res.error} You can also click the map to place the pin yourself, or paste coordinates below.`;
+    return;
+  }
+  setPin(res.point, `Found: ${res.label}. Drag the pin if it's not exactly on the building, then Save.`, { recenter: true });
+};
+
+$("editor").onsubmit = e => {
+  e.preventDefault();
+  if (canSave()) commit(); else $("edFind").click();   // Enter in the address box looks it up first
+};
+
+function commit() {
+  const address = $("edAddr").value.trim() || (pin ? coordsText(pin) : "");
+  if (!address) { $("edErr").textContent = "Type an address or place the pin first."; return; }
+  const name = $("edName").value.trim() || address;
+  if (trip.people.some((p, j) => j !== editing.index && p.name.toLowerCase() === name.toLowerCase())) {
+    $("edErr").textContent = `Someone is already called ${name}. Use a different name.`;
+    return;
+  }
+  const people = [...trip.people];
+  const old = people[editing.index];
+  if (old) people[editing.index] = { name, address, point: pin };
+  else people.push({ name, address, point: pin });
+  // renaming the centre keeps them the centre
+  saveTrip(people, old && old.name === trip.centre ? name : trip.centre);
+}
+
+async function saveTrip(people, centre = trip.centre) {
+  let res;
+  try { res = await postJSON("/api/trip", { people, centre }); }
+  catch (e) { res = { error: "Can't reach the server. Check your internet connection." }; }
+  if (res.error) {
+    if (!$("editor").hidden) $("edErr").textContent = res.error; else alert(res.error);
+    return;
+  }
+  closeEditor();
+  await loadTrip();
+  load();   // re-check the board with the new list
+}
+
+// ---------------------------------------------------------------- shell
+
+function updateAge() {
+  if (!board || board.error) return;
+  const mins = Math.floor((Date.now() / 1000 - board.checked_at) / 60);
+  const when = new Date(board.checked_at * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  $("sub").textContent = board.pins_only
+    ? `${board.people.length} people · no centre picked yet`
+    : `From ★ ${board.office_name} · ${board.office} · live traffic checked at ${when}` + (mins >= 1 ? ` (${mins} min ago)` : " (just now)");
+  $("footer").textContent = `Source: ${board.provider} · ${board.lookups_today} of ${board.daily_limit} daily lookups used` +
+    (board.cached ? " · showing recent results, Refresh re-checks after 1 min" : "");
+}
+
+function render() {
+  applyCentreLabels();
+  renderMap();
+  renderList();
+  updateAge();
+}
+
+function showTab(tab) {
+  document.querySelectorAll("[data-tab]").forEach(b => b.setAttribute("aria-pressed", b.dataset.tab === tab));
+  $("mapView").hidden = tab !== "map";
+  $("listView").hidden = tab !== "list";
+  $("peopleView").hidden = tab !== "people";
+  store.set("tab", tab);
+  if (tab === "map") { map.invalidateSize(); if (board && !board.error) renderMap(); }
+  if (tab === "people") { loadTrip(); if (me.role === "owner") loadMembers(); }   // pick up changes others made
+}
+
+async function load(force = false) {
+  $("refresh").disabled = true;
+  $("refresh").textContent = "Checking…";
+  try {
+    board = await apiGet("/api/board" + (force ? "?force=1" : ""));
+  } catch (e) {
+    const gone = "Can't reach the server. Check your internet connection.";
+    // keep what's on screen rather than blanking it
+    board = board && !board.error ? { ...board, cached: true, stale: gone } : { error: gone };
+  }
+  $("refresh").disabled = false;
+  $("refresh").textContent = "Refresh";
+  if (board.error) {
+    $("notice").innerHTML = `<div class="notice">${esc(board.error)}</div>`;
+    $("sub").textContent = "Couldn't load live traffic";
+    $("list").innerHTML = "";
+    $("footer").textContent = "";
+    layer.clearLayers();
+    return;
+  }
+  const when = new Date(board.checked_at * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  $("notice").innerHTML =
+    (board.stale ? `<div class="notice demo">Couldn't check live traffic just now: ${esc(board.stale)}\nShowing the results from ${when}.</div>` : "") +
+    (board.provider === "demo"
+      ? `<div class="notice demo">Demo mode: these places and numbers are made up. Remove the MAPS_PROVIDER secret in Supabase to use real traffic.</div>` : "") +
+    (board.pins_only ? `<div class="notice info">${esc(board.message)}</div>` : "");
+  if (selected && !board.friends.some(f => f.name === selected)) selected = null;
+  applyView();   // live traffic is offered only once we know there's a TomTom key
+  if (force) refreshLive();
+  setMode(store.get("mode", mode));   // renders; in Walking it also fetches walks (free when already looked up today)
+}
+
+document.querySelectorAll("[data-tab]").forEach(b => b.onclick = () => showTab(b.dataset.tab));
+document.querySelectorAll("[data-dir]").forEach(b => b.onclick = () => {
+  dir = b.dataset.dir;
+  document.querySelectorAll("[data-dir]").forEach(x => x.setAttribute("aria-pressed", x === b));
+  renderMap();
+  if (selected) select(selected);
+});
+$("refresh").onclick = () => load(true);
+document.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => setMode(b.dataset.mode));
+$("sort").value = store.get("sort", "there");
+$("sort").onchange = () => { store.set("sort", $("sort").value); renderList(); };
+// Coming back to the tab after a while re-checks traffic, so it's current whenever you look.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && board && !board.error && Date.now() - board.checked_at * 1000 > STALE_MS) load();
+});
+setInterval(updateAge, 30 * 1000);
+function setTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  store.set("theme", theme);
+  const toLight = theme === "dark";
+  $("theme").textContent = toLight ? "☀" : "☾";
+  $("theme").title = $("theme").ariaLabel = toLight ? "Switch to light theme" : "Switch to dark theme";
+  bases.faded.setUrl(FADED_URL(theme));
+  if (board && !board.error) renderMap();   // route colours come from the theme
+}
+$("theme").onclick = () => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+setTheme(store.get("theme", "dark"));
+applyView();
+
+// ---- owner-only parts, invite list, sign in / out
+
+function applyRole() {
+  document.querySelectorAll("[data-owner-only]").forEach(el => el.hidden = me.role !== "owner");
+  $("signout").title = me.email ? `Signed in as ${me.email}` : "Sign out";
+}
+
+async function loadMembers(change) {
+  let res;
+  try { res = await call("/members", change); } catch (e) { return; }
+  if (res.error) return alert(res.error);
+  $("members").innerHTML = `<div class="person"><div class="who"><b>${esc(res.owner)}</b><span>Owner (you)</span></div></div>` +
+    (res.members.length ? res.members.map(m => `<div class="person"><div class="who"><b>${esc(m)}</b><span>Can view and change the centre</span></div>
+      <div class="acts"><button class="ghost danger" data-uninvite="${esc(m)}">Remove</button></div></div>`).join("")
+      : `<div class="empty">No friends invited yet. Add their email above; they sign in with a code sent there.</div>`);
+}
+$("addMember").addEventListener("submit", e => {
+  e.preventDefault();
+  const email = $("memberEmail").value.trim();
+  if (!email) return;
+  $("memberEmail").value = "";
+  loadMembers({ add: true, email });
+});
+$("members").addEventListener("click", e => {
+  const b = e.target.closest("[data-uninvite]");
+  if (b && confirm(`Remove ${b.dataset.uninvite}? They won't be able to open the board any more.`))
+    loadMembers({ remove: true, email: b.dataset.uninvite });
+});
+
+let loginEmail = "";
+function showLogin(message = "") {
+  $("login").hidden = false;
+  $("loginMsg").textContent = message;
+  $("loginMsg").className = "msg" + (message ? " bad" : "");
+  setLoginStep(loginEmail ? "code" : "email");
+}
+function setLoginStep(step) {
+  const code = step === "code";
+  $("loginEmail").hidden = code;
+  $("loginCode").hidden = !code;
+  $("loginBack").hidden = !code;
+  $("loginBtn").textContent = code ? "Sign in with code" : "Email me a sign-in link";
+  (code ? $("loginCode") : $("loginEmail")).focus();
+}
+$("loginForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const say = (text, bad = false) => { $("loginMsg").textContent = text; $("loginMsg").className = "msg" + (bad ? " bad" : ""); };
+  $("loginBtn").disabled = true;
+  try {
+    if ($("loginCode").hidden) {
+      loginEmail = $("loginEmail").value.trim().toLowerCase();
+      say("Sending…");
+      const res = await (await fetch(FN + "/login", { method: "POST", headers: { "Content-Type": "application/json" },
+                                                       body: JSON.stringify({ email: loginEmail }) })).json();
+      if (res.error) { loginEmail = ""; return say(res.error, true); }
+      say(res.message);
+      setLoginStep("code");
+    } else {
+      say("Checking…");
+      keepSession(await auth("verify", { type: "email", email: loginEmail, token: $("loginCode").value.trim() }));
+      $("loginCode").value = "";
+      say("");
+      $("login").hidden = true;
+      start();
+    }
+  } catch (err) {
+    say(err.message === "Failed to fetch" ? "Can't reach the server. Check your internet connection." : err.message, true);
+  } finally {
+    $("loginBtn").disabled = false;
+  }
+});
+$("loginBack").onclick = () => { loginEmail = ""; setLoginStep("email"); $("loginMsg").textContent = ""; };
+$("signout").onclick = () => {
+  if (!confirm("Sign out of the board on this device?")) return;
+  keepSession(null);
+  loginEmail = "";
+  board = null; walks = null; walksFor = null;
+  trip = { centre: null, people: [] };
+  layer.clearLayers();
+  showLogin();
+};
+
+function start() {
+  showTab(store.get("tab", "map"));
+  loadTrip().then(() => {
+    // Nothing to show yet: the owner starts on the People tab so setting up is the first thing they see
+    if (!trip.people.length && me.role === "owner") showTab("people");
+    load();
+  });
+}
+
+// Coming back from the sign-in link in the email: Supabase puts the sign-in after the # in the address
+function signInFromLink() {
+  const back = new URLSearchParams(location.hash.slice(1));
+  if (!back.has("access_token") && !back.has("error")) return "";
+  history.replaceState(null, "", location.pathname + location.search);   // keep it out of history and bookmarks
+  if (back.has("error")) {
+    return /expired|invalid/i.test(back.get("error_description") || "")
+      ? "That sign-in link has expired or was already used. Ask for a new one."
+      : back.get("error_description") || "Sign-in failed. Ask for a new link.";
+  }
+  keepSession({ access_token: back.get("access_token"), refresh_token: back.get("refresh_token"),
+                expires_at: Number(back.get("expires_at")) || undefined, expires_in: Number(back.get("expires_in")) || 3600 });
+  return "";
+}
+
+applyRole();
+const linkProblem = signInFromLink();
+if (!CFG.supabaseUrl || !CFG.anonKey) {
+  $("notice").innerHTML = `<div class="notice">This board isn't set up yet: fill in config.js (see SETUP.md).</div>`;
+} else if (session) start();
+else showLogin(linkProblem);
+</script>
+</body>
+</html>
