@@ -220,7 +220,7 @@ export function mountLogin({ canvas, stage, card, clock, status, button }) {
   // The sign-in transition (about 1.6 s, ending on black): two shockwaves spread out from Bangalore,
   // the land dots light up in the accent colour behind the first one, and the camera eases in.
   const LENGTH = 1.6, SECOND_WAVE = 0.1 / LENGTH;   // second wave 0.1 s behind the first
-  const PUSH_SPEED = 1.5;   // the camera's push in finishes in two thirds of the time
+  const PUSH_SPEED = 3;   // the camera pushes in over the first third (about half a second)
   const smooth = (x) => x * x * (3 - 2 * x);
   const lit = ACC.clone().lerp(new THREE.Color(1, 1, 1), 0.15);
   function transition(dt) {
