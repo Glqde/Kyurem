@@ -1083,10 +1083,20 @@ async function loadMembers(change) {
   let res;
   try { res = await call("/members", change); } catch (e) { return; }
   if (res.error) return alert(res.error);
+  const seen = res.seen || {};
   $("members").innerHTML = `<div class="person"><div class="who"><b>${esc(res.owner)}</b><span>Owner (you)</span></div></div>` +
-    (res.members.length ? res.members.map(m => `<div class="person"><div class="who"><b>${esc(m)}</b><span>Can view and change the centre</span></div>
+    (res.members.length ? res.members.map(m => `<div class="person"><div class="who"><b>${esc(m)}</b>
+      <span>Can view and change the centre · ${seen[m] ? `last seen ${esc(ago(seen[m]))}` : "hasn't signed in yet"}</span></div>
       <div class="acts"><button class="ghost danger" data-uninvite="${esc(m)}">Remove</button></div></div>`).join("")
-      : `<div class="empty">No friends invited yet. Add their email above; they sign in with a code sent there.</div>`);
+      : `<div class="empty">No friends invited yet. Add their email above; they sign in with a link sent there.</div>`);
+}
+
+function ago(when) {
+  const mins = Math.round((Date.now() - Date.parse(when)) / 60000);
+  if (mins < 10) return "just now";   // saved at most every 5 minutes, so anything sooner means "using it now"
+  if (mins < 60) return `${mins} min ago`;
+  if (mins < 48 * 60) return `${Math.round(mins / 60)} h ago`;
+  return new Date(when).toLocaleDateString([], { day: "numeric", month: "short" });
 }
 $("addMember").addEventListener("submit", e => {
   e.preventDefault();
