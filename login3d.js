@@ -1,5 +1,5 @@
 // The sign-in screen's 3D globe: particles swirl together into a dotted Earth (real coastlines),
-// flights arc out from Bangalore, the card tilts toward the mouse, and signing in sends shockwaves round it.
+// flights arc out from Bangalore, the card tilts toward the mouse, and signing in sends a shockwave round it.
 // Loaded only when the sign-in screen shows. Nothing here is real board data.
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
 import { feature } from "https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/+esm";
@@ -109,7 +109,7 @@ export function mountLogin({ canvas, stage, card, clock, status }) {
   const face = new THREE.Quaternion().setFromUnitVectors(ll(...BLR).normalize(), new THREE.Vector3(0.18, 0.32, 1).normalize());
 
   // dark core + soft white halo (Globe 1's look)
-  const core = new THREE.Mesh(new THREE.SphereGeometry(1.985, 64, 64), new THREE.MeshBasicMaterial({ color: 0x060607, transparent: true }));
+  const core = new THREE.Mesh(new THREE.SphereGeometry(1.985, 64, 64), new THREE.MeshBasicMaterial({ color: 0x060607 }));
   const halo = new THREE.Mesh(new THREE.SphereGeometry(2.18, 64, 64), new THREE.ShaderMaterial({
     transparent: true, side: THREE.BackSide, depthWrite: false,
     vertexShader: "varying vec3 n; void main(){ n = normalize(normalMatrix*normal); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }",
@@ -227,48 +227,23 @@ export function mountLogin({ canvas, stage, card, clock, status }) {
     renderer.render(scene, camera);
   });
 
-  // The sign-in transition (about 1.6 s, ending on black): two shockwaves spread out from Bangalore,
-  // the land dots light up in the accent colour behind the first one, and the globe whips into a spin
-  // round Bangalore and blows apart into flying dots.
-  const LENGTH = 1.6, SECOND_WAVE = 0.3 / LENGTH;   // second wave 0.3 s behind the first
-  const BREAK = SECOND_WAVE + 0.05;   // spin and scatter start just after the second wave leaves
+  // The sign-in transition (about 1.6 s, ending on black): one shockwave spreads out from Bangalore
+  // and the land dots light up in the accent colour behind it. The globe and camera stay still.
+  const LENGTH = 1.6;
   const lit = ACC.clone().lerp(new THREE.Color(1, 1, 1), 0.15);
-  const blrAxis = ll(...BLR).normalize(), whirlQ = new THREE.Quaternion();
-  let whirl = 0, scatter = null;   // spin angle so far; each dot's random fling direction
   function transition(dt) {
     warpT = Math.min(1, warpT + dt / LENGTH);
-    const brk = Math.max(0, (warpT - BREAK) / (1 - BREAK));
-    whirl += Math.pow(brk, 1.6) * 60 * dt;   // spin speed ramps up to about 10 turns a second
-    globe.quaternion.multiply(whirlQ.setFromAxisAngle(blrAxis, whirl));   // spin round Bangalore, along the pulse rings
-    core.material.opacity = 1 - Math.min(1, brk * 3);   // the planet empties out as it breaks apart
-    halo.material.uniforms.uA.value = 0.45 * (1 - Math.min(1, brk * 3));
-    if (brk > 0) {
-      pin.visible = ring.visible = false;
-      flights.forEach((f) => { f.line.material.opacity = f.head.material.opacity = 0; });
-      if (sea) sea.material.opacity = 0;
-    }
     const fade = Math.max(0, (warpT - 0.6) / 0.4);
-    const radius = (start) => (warpT < start ? -9 : Math.pow((warpT - start) / (1 - start), 0.8) * Math.PI * 1.05);
+    const R = Math.pow(warpT, 0.8) * Math.PI * 1.05;   // how far the wave has travelled from Bangalore
     wave.visible = true;
-    wave.material.uniforms.uR.value.set(radius(0), radius(SECOND_WAVE), -9);
+    wave.material.uniforms.uR.value.set(R, -9, -9);
     wave.material.uniforms.uA.value = 1 - fade;
     if (dots) {
-      const R = radius(0);
       for (let i = 0; i < dots.ang.length; i++) {
         const m = Math.max(0, Math.min(1, (R - dots.ang[i]) / 0.25));   // 0 ahead of the wave, 1 once it has passed
         dots.col[i * 3] = 0.95 + (lit.r - 0.95) * m; dots.col[i * 3 + 1] = 0.95 + (lit.g - 0.95) * m; dots.col[i * 3 + 2] = 0.95 + (lit.b - 0.95) * m;
       }
       dots.geo.attributes.color.needsUpdate = true;
-      if (brk > 0) {
-        scatter = scatter || dots.home.map(() => new THREE.Vector3().randomDirection().multiplyScalar(0.4 + Math.random() * 1.2));
-        const fly = Math.pow(brk, 1.4) * 7;
-        for (let i = 0; i < dots.home.length; i++) {
-          tmp.copy(dots.home[i]).multiplyScalar(1 + fly * 0.35).addScaledVector(scatter[i], fly);
-          dots.pos[i * 3] = tmp.x; dots.pos[i * 3 + 1] = tmp.y; dots.pos[i * 3 + 2] = tmp.z;
-        }
-        dots.geo.attributes.position.needsUpdate = true;
-        dots.mat.size = DOT + brk * 0.03;
-      }
     }
     canvas.style.opacity = String(1 - fade);   // the page behind is black
     if (warpT >= 1 && onWarped) { const done = onWarped; onWarped = null; done(); }
@@ -284,9 +259,7 @@ export function mountLogin({ canvas, stage, card, clock, status }) {
       warping = false; warpT = 0; onWarped = null;
       canvas.style.opacity = "1";
       wave.visible = false;
-      whirl = 0;
-      core.material.opacity = 1; halo.material.uniforms.uA.value = 0.45; pin.visible = ring.visible = true;
-      if (dots) { dots.mat.size = DOT; dots.mat.opacity = 0.95; dots.done = false; dots.col.fill(0.95); dots.geo.attributes.color.needsUpdate = true; }
+      if (dots) { dots.col.fill(0.95); dots.geo.attributes.color.needsUpdate = true; }
     },
     stop() {
       renderer.setAnimationLoop(null);
