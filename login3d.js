@@ -91,7 +91,7 @@ function cardEffects({ stage, card, clock, status, still }) {
  * Start the sign-in screen. Returns { warp(done), reset(), stop() }. warp() plays the sign-in transition
  * and then calls done(); if the 3D scene couldn't start, it calls done() straight away.
  */
-export function mountLogin({ canvas, stage, card, clock, status, button }) {
+export function mountLogin({ canvas, stage, card, clock, status }) {
   const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
   const stopCard = cardEffects({ stage, card, clock, status, still });
   let renderer;
@@ -162,8 +162,8 @@ export function mountLogin({ canvas, stage, card, clock, status, button }) {
     born = clock3.getElapsedTime();
   }).catch(() => {});   // coastlines didn't load: the halo, pin and flights still show
 
-  // drag to spin; hovering the button leans the globe toward Bangalore; warp dives in
-  let drag = null, lean = 0, leanTo = 0, warpT = 0, warping = false, onWarped = null, lastT = 0;
+  // drag to spin; signing in plays the transition below
+  let drag = null, warpT = 0, warping = false, onWarped = null, lastT = 0;
   const spin = new THREE.Vector2(), vel = new THREE.Vector2();
   const down = (e) => { if (!e.target.closest(".stage")) drag = [e.clientX, e.clientY]; };
   const up = () => { drag = null; };
@@ -173,12 +173,9 @@ export function mountLogin({ canvas, stage, card, clock, status, button }) {
     spin.add(vel);
     drag = [e.clientX, e.clientY];
   };
-  const enter = () => { leanTo = 1; }, leave = () => { leanTo = 0; };
   addEventListener("pointerdown", down);
   addEventListener("pointerup", up);
   addEventListener("pointermove", dragMove);
-  button.addEventListener("pointerenter", enter);
-  button.addEventListener("pointerleave", leave);
   const layout = () => {
     renderer.setSize(innerWidth, innerHeight, false);
     camera.aspect = innerWidth / innerHeight;
@@ -219,9 +216,7 @@ export function mountLogin({ canvas, stage, card, clock, status, button }) {
     const s = 1 + (t * 0.7 % 1) * 3;
     ring.scale.setScalar(s);
     ring.material.opacity = 1 - (s - 1) / 3;
-    lean += (leanTo - lean) * 0.06;
-    globe.scale.setScalar(1 + lean * 0.3);
-    pin.scale.setScalar(1 + Math.sin(t * 4) * 0.3 + lean);
+    pin.scale.setScalar(1 + Math.sin(t * 4) * 0.3);
 
     const dist = REST + (1 - ease) * 11.5;   // fly in from far away
     camera.position.set(0, 0, dist);
@@ -301,8 +296,6 @@ export function mountLogin({ canvas, stage, card, clock, status, button }) {
       removeEventListener("pointerup", up);
       removeEventListener("pointermove", dragMove);
       removeEventListener("resize", layout);
-      button.removeEventListener("pointerenter", enter);
-      button.removeEventListener("pointerleave", leave);
     },
   };
 }

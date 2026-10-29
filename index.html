@@ -1156,7 +1156,7 @@ function showLogin(message = "") {
   if (login3d) return;
   login3d = import("./login3d.js")
     .then(m => m.mountLogin({ canvas: $("loginScene"), stage: $("loginStage"), card: $("loginCard"),
-                              clock: $("loginClock"), status: $("loginStatus"), button: $("loginBtn") }))
+                              clock: $("loginClock"), status: $("loginStatus") }))
     .catch(() => { $("loginStage").classList.add("in"); return null; });   // no 3D (offline CDN, old browser): plain card
 }
 // Off to Google, after shockwaves ripple out from Bangalore and light up the globe; Supabase brings you back here signed in (see signInFromLink)
