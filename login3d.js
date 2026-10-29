@@ -1,5 +1,5 @@
 // The sign-in screen's 3D globe: particles swirl together into a dotted Earth (real coastlines),
-// flights arc out from Bangalore, the card tilts toward the mouse, and signing in warps into the globe.
+// flights arc out from Bangalore, the card tilts toward the mouse, and signing in sends shockwaves round it.
 // Loaded only when the sign-in screen shows. Nothing here is real board data.
 import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
 import { feature } from "https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/+esm";
@@ -73,8 +73,8 @@ function cardEffects({ stage, card, clock, status, still }) {
 }
 
 /**
- * Start the sign-in screen. Returns { warp(done), stop() }. warp() plays the dive into the globe and
- * then calls done(); if the 3D scene couldn't start, it calls done() straight away.
+ * Start the sign-in screen. Returns { warp(done), reset(), stop() }. warp() plays the sign-in transition
+ * and then calls done(); if the 3D scene couldn't start, it calls done() straight away.
  */
 export function mountLogin({ canvas, stage, card, clock, status, button }) {
   const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -94,12 +94,24 @@ export function mountLogin({ canvas, stage, card, clock, status, button }) {
   const face = new THREE.Quaternion().setFromUnitVectors(ll(...BLR).normalize(), new THREE.Vector3(0.18, 0.32, 1).normalize());
 
   // dark core + soft white halo (Globe 1's look)
-  globe.add(new THREE.Mesh(new THREE.SphereGeometry(1.985, 64, 64), new THREE.MeshBasicMaterial({ color: 0x060607 })));
-  globe.add(new THREE.Mesh(new THREE.SphereGeometry(2.18, 64, 64), new THREE.ShaderMaterial({
+  const core = new THREE.Mesh(new THREE.SphereGeometry(1.985, 64, 64), new THREE.MeshBasicMaterial({ color: 0x060607 }));
+  const halo = new THREE.Mesh(new THREE.SphereGeometry(2.18, 64, 64), new THREE.ShaderMaterial({
     transparent: true, side: THREE.BackSide, depthWrite: false,
     vertexShader: "varying vec3 n; void main(){ n = normalize(normalMatrix*normal); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }",
-    fragmentShader: "varying vec3 n; void main(){ float i = pow(max(0.,.62 - dot(n, vec3(0,0,1.))), 3.); gl_FragColor = vec4(vec3(1.), i*.45); }",
-  })));
+    uniforms: { uA: { value: 0.45 } },
+    fragmentShader: "uniform float uA; varying vec3 n; void main(){ float i = pow(max(0.,.62 - dot(n, vec3(0,0,1.))), 3.); gl_FragColor = vec4(vec3(1.), i*uA); }",
+  }));
+  globe.add(core, halo);
+  const wave = new THREE.Mesh(new THREE.SphereGeometry(2.02, 96, 96), new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: { uDir: { value: ll(...BLR).normalize() }, uR: { value: new THREE.Vector3(-9, -9, -9) }, uC: { value: ACC }, uA: { value: 0 } },
+    vertexShader: "varying vec3 p; void main(){ p = normalize(position); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }",
+    fragmentShader: "uniform vec3 uDir, uC, uR; uniform float uA; varying vec3 p;"
+      + "float ring(float a, float r){ float d = abs(a-r); return 1.4*smoothstep(.22,0.,d) + .5*smoothstep(.7,0.,d)*step(a,r); }"
+      + "void main(){ float a = acos(clamp(dot(p,uDir),-1.,1.)); float band = ring(a,uR.x) + .8*ring(a,uR.y) + .6*ring(a,uR.z); gl_FragColor = vec4(uC, min(1.,band)*uA); }",
+  }));
+  wave.visible = false;
+  globe.add(wave);
   const pin = new THREE.Mesh(new THREE.SphereGeometry(0.035, 16, 16), new THREE.MeshBasicMaterial({ color: ACC }));
   pin.position.copy(ll(...BLR, 2.01));
   globe.add(pin);
@@ -123,16 +135,20 @@ export function mountLogin({ canvas, stage, card, clock, status, button }) {
     const home = land, from = home.map(() => new THREE.Vector3().randomDirection().multiplyScalar(6 + Math.random() * 10));
     const pos = new Float32Array(home.length * 3), geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-    globe.add(new THREE.Points(geo, new THREE.PointsMaterial({ size: 0.028, color: 0xf2f1ec, transparent: true, opacity: 0.95 })));
+    const col = new Float32Array(home.length * 3).fill(0.95), toBLR = ll(...BLR).normalize();
+    geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+    const ang = Float32Array.from(home, (v) => Math.acos(Math.max(-1, Math.min(1, v.clone().normalize().dot(toBLR)))));
+    const mat = new THREE.PointsMaterial({ size: 0.028, vertexColors: true, transparent: true, opacity: 0.95 });
+    globe.add(new THREE.Points(geo, mat));
     sea = new THREE.Points(new THREE.BufferGeometry().setFromPoints(water.filter((_, i) => i % 7 === 0)),
       new THREE.PointsMaterial({ size: 0.014, color: 0x6e6d68, transparent: true, opacity: 0 }));
     globe.add(sea);
-    dots = { home, from, pos, geo };
+    dots = { home, from, pos, geo, mat, col, ang };
     born = clock3.getElapsedTime();
   }).catch(() => {});   // coastlines didn't load: the halo, pin and flights still show
 
   // drag to spin; hovering the button leans the globe toward Bangalore; warp dives in
-  let drag = null, lean = 0, leanTo = 0, warpT = 0, warping = false, onWarped = null;
+  let drag = null, lean = 0, leanTo = 0, warpT = 0, warping = false, onWarped = null, lastT = 0, from = null;
   const spin = new THREE.Vector2(), vel = new THREE.Vector2();
   const down = (e) => { if (!e.target.closest(".stage")) drag = [e.clientX, e.clientY]; };
   const up = () => { drag = null; };
@@ -192,24 +208,53 @@ export function mountLogin({ canvas, stage, card, clock, status, button }) {
     globe.scale.setScalar(1 + lean * 0.3);
     pin.scale.setScalar(1 + Math.sin(t * 4) * 0.3 + lean);
 
-    let dist = 21 - ease * 11.5;   // fly in from far away
-    if (warping) {
-      warpT = Math.min(1, warpT + 0.022);
-      dist -= Math.pow(warpT, 2.2) * 6.2;
-      if (warpT >= 1 && onWarped) { const done = onWarped; onWarped = null; done(); }
-    }
-    const w = warping ? Math.pow(warpT, 1.5) : 0;   // the warp swings the camera onto the globe
-    camera.position.set(globe.position.x * w, globe.position.y * w, dist);
-    camera.lookAt(globe.position.x * w, globe.position.y * w, 0);
-    camera.fov = 42 + (warping ? Math.pow(warpT, 3) * 40 : 0);
-    camera.updateProjectionMatrix();
+    const dist = 21 - ease * 11.5;   // fly in from far away
+    camera.position.set(0, 0, dist);
+    camera.lookAt(0, 0, 0);
+    const dt = Math.min(0.05, t - lastT);
+    lastT = t;
+    if (warping) transition(dt);
     renderer.render(scene, camera);
   });
+
+  // The sign-in transition (about 1.6 s, ending on black): two shockwaves spread out from Bangalore,
+  // the land dots light up in the accent colour behind the first one, and the camera eases in.
+  const LENGTH = 1.6, SECOND_WAVE = 0.25;
+  const smooth = (x) => x * x * (3 - 2 * x);
+  const lit = ACC.clone().lerp(new THREE.Color(1, 1, 1), 0.15);
+  function transition(dt) {
+    warpT = Math.min(1, warpT + dt / LENGTH);
+    const k = smooth(warpT), fade = Math.max(0, (warpT - 0.6) / 0.4);
+    const radius = (start) => (warpT < start ? -9 : Math.pow((warpT - start) / (1 - start), 0.8) * Math.PI * 1.05);
+    wave.visible = true;
+    wave.material.uniforms.uR.value.set(radius(0), radius(SECOND_WAVE), -9);
+    wave.material.uniforms.uA.value = 1 - fade;
+    if (dots) {
+      const R = radius(0);
+      for (let i = 0; i < dots.ang.length; i++) {
+        const m = Math.max(0, Math.min(1, (R - dots.ang[i]) / 0.25));   // 0 ahead of the wave, 1 once it has passed
+        dots.col[i * 3] = 0.95 + (lit.r - 0.95) * m; dots.col[i * 3 + 1] = 0.95 + (lit.g - 0.95) * m; dots.col[i * 3 + 2] = 0.95 + (lit.b - 0.95) * m;
+      }
+      dots.geo.attributes.color.needsUpdate = true;
+    }
+    camera.position.copy(from).lerp(globe.position, Math.pow(k, 1.8) * 0.45);
+    camera.lookAt(globe.position.clone().multiplyScalar(Math.pow(k, 1.5)));
+    canvas.style.opacity = String(1 - fade);   // the page behind is black
+    if (warpT >= 1 && onWarped) { const done = onWarped; onWarped = null; done(); }
+  }
 
   return {
     warp(done) {
       if (still) return done();
+      from = camera.position.clone();
       warping = true; warpT = 0; onWarped = done;
+    },
+    /** Put everything back (for replaying a transition, or coming back with the Back button). */
+    reset() {
+      warping = false; warpT = 0; onWarped = null;
+      canvas.style.opacity = "1";
+      wave.visible = false;
+      if (dots) { dots.mat.size = 0.028; dots.mat.opacity = 0.95; dots.done = false; dots.col.fill(0.95); dots.geo.attributes.color.needsUpdate = true; }
     },
     stop() {
       renderer.setAnimationLoop(null);

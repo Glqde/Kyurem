@@ -160,7 +160,9 @@
   #login .in .rise { opacity: 1; transform: none; }
   #login .in .rise:nth-child(3) { transition-delay: .08s; } #login .in .rise:nth-child(4) { transition-delay: .16s; }
   #login .in .rise:nth-child(5) { transition-delay: .24s; } #login .in .rise:nth-child(6) { transition-delay: .32s; }
-  #loginFlash { position: absolute; inset: 0; background: #38e1ff; opacity: 0; pointer-events: none; transition: opacity .35s ease; mix-blend-mode: screen; }
+  #login.leaving .card { opacity: 0; filter: blur(6px); transition: opacity .45s ease, filter .45s ease; }
+  .googlebtn .spin { width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(0, 0, 0, .2); border-top-color: #111; animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { #login .rise { transition: none; opacity: 1; transform: none; } #login .card { transition: none; } }
   .whoami { font-size: 12px; color: var(--muted); }
   .members { display: grid; gap: 8px; }
@@ -1157,7 +1159,7 @@ function showLogin(message = "") {
                               clock: $("loginClock"), status: $("loginStatus"), button: $("loginBtn") }))
     .catch(() => { $("loginStage").classList.add("in"); return null; });   // no 3D (offline CDN, old browser): plain card
 }
-// Off to Google, after a short dive into the globe; Supabase brings you back here signed in (see signInFromLink)
+// Off to Google, after shockwaves ripple out from Bangalore and light up the globe; Supabase brings you back here signed in (see signInFromLink)
 $("loginBtn").onclick = async () => {
   $("loginBtn").disabled = true;
   const url = `${CFG.supabaseUrl}/auth/v1/authorize?` + new URLSearchParams({
@@ -1165,11 +1167,18 @@ $("loginBtn").onclick = async () => {
   const go = () => { location.href = url; };
   const scene = await Promise.race([login3d, new Promise(r => setTimeout(r, 300))]);
   if (!scene) return go();
-  setTimeout(go, 1600);   // never wait longer than this, whatever the animation does
-  scene.warp(() => { $("loginFlash").style.opacity = .85; setTimeout(go, 180); });
+  $("login").classList.add("leaving");
+  setTimeout(go, 1800);   // never wait longer than this, whatever the animation does
+  scene.warp(go);
 };
-// coming back with the browser's Back button after the warp: make the button usable again
-addEventListener("pageshow", e => { if (e.persisted) { $("loginBtn").disabled = false; $("loginFlash").style.opacity = 0; } });
+// coming back with the browser's Back button after the ripple: put the screen back
+addEventListener("pageshow", async e => {
+  if (!e.persisted) return;
+  $("loginBtn").disabled = false;
+  $("login").classList.remove("leaving");
+  const scene = login3d && await login3d;
+  if (scene) scene.reset();
+});
 $("signout").onclick = () => {
   if (!confirm("Sign out of the board on this device?")) return;
   keepSession(null);
